@@ -74,6 +74,30 @@ def test_accepts_valid_signature():
     assert resp.json() == {"ok": True}
 
 
+def test_message_received_dispatches_through_route():
+    # Regression test for the bug fixed in 90c731b: the route checked
+    # payload.get("event") but the real Linq field is "event_type", so
+    # _handle_message_received was never dispatched for real messages.
+    # This goes through the actual HTTP route (not calling the handler
+    # directly) so it catches that class of bug again if reintroduced.
+    body = json.dumps(REAL_MESSAGE_RECEIVED_PAYLOAD).encode()
+    timestamp = str(int(time.time()))
+    with patch("app.routes.webhook.send_text", AsyncMock()) as mock_send:
+        resp = client.post(
+            "/webhook/linq",
+            content=body,
+            headers={
+                "webhook-id": "msg_1",
+                "webhook-timestamp": timestamp,
+                "webhook-signature": _sign(body, "msg_1", timestamp),
+            },
+        )
+        assert resp.status_code == 200
+        mock_send.assert_awaited_once_with(
+            "6e4a83dc-ffba-4761-924c-5292fd8d84e3", "got it: hello otto"
+        )
+
+
 def test_rejects_malformed_timestamp():
     body = json.dumps({"event": "message.received", "data": {}}).encode()
     resp = client.post(
