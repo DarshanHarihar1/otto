@@ -5,3 +5,6 @@ __pycache__/
 data/merchants.csv
 *.egg-info/
 .pytest_cache/
+
+.worktrees/
+.superpowers/
