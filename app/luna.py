@@ -19,6 +19,10 @@ class VariantMatch(BaseModel):
     one_line_pitch: str
 
 
+class ShopifyVariantMatch(BaseModel):
+    shopify_variant_id: str | None
+
+
 def _match_variant_sync(
     identification: Identification, candidates: list[dict]
 ) -> VariantMatch:
@@ -55,3 +59,43 @@ async def match_variant(
     identification: Identification, candidates: list[dict]
 ) -> VariantMatch:
     return await asyncio.to_thread(_match_variant_sync, identification, candidates)
+
+
+def _match_shopify_variant_sync(
+    identification: Identification, variants: list[dict]
+) -> ShopifyVariantMatch:
+    variant_summary = "\n".join(
+        f"- id={v.get('id')} title={v.get('title')} option1={v.get('option1')} "
+        f"option2={v.get('option2')} option3={v.get('option3')}"
+        for v in variants
+    )
+    response = _client.responses.parse(
+        model=_MODEL,
+        input=[
+            {
+                "role": "system",
+                "content": (
+                    "Given a target product identification and Shopify variants, "
+                    "select the variant that matches the requested size, shade, "
+                    "concentration, count, or other variant detail. Return only "
+                    "the id of a supplied variant. Return null when none matches."
+                ),
+            },
+            {
+                "role": "user",
+                "content": (
+                    f"Target: brand={identification.brand} "
+                    f"product={identification.product} variant={identification.variant}\n"
+                    f"Shopify variants:\n{variant_summary}"
+                ),
+            },
+        ],
+        text_format=ShopifyVariantMatch,
+    )
+    return response.output_parsed
+
+
+async def match_shopify_variant(
+    identification: Identification, variants: list[dict]
+) -> ShopifyVariantMatch:
+    return await asyncio.to_thread(_match_shopify_variant_sync, identification, variants)

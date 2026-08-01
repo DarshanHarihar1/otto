@@ -37,3 +37,24 @@ the resolver changes.
   `brand="Minimalist"`.
 
 Evidence: `.venv/bin/pytest tests/test_resolver.py -q` — 6 passed.
+
+## Critical/High branch-review remediation
+
+- Added Luna's structured `ShopifyVariantMatch` selection after the Shopify
+  product lookup. For multi-variant products, `resolve()` accepts only an id
+  returned by Luna that exists in Shopify's response, and the quote's id and
+  paise price come exclusively from that selected Shopify variant. Single
+  variants avoid the additional model call.
+- Replaced sequential domain lookup with failure-isolated `asyncio.gather`;
+  one failed merchant lookup no longer aborts category/global fan-out.
+- Documented `SINGLE_STORE_SIMILARITY_FLOOR = 0.6` and
+  `BREADTH_SIMILARITY_FLOOR = 0.75`; broad searches now require the higher
+  threshold. Brand filtering remains mandatory, so unknown brands still return
+  no quote rather than crossing vendors.
+- Added regression coverage for a non-index-zero Shopify variant, breadth
+  rejection at similarity 0.65 while the single-store route accepts it, and
+  failed-domain fan-out isolation.
+
+Evidence: `.venv/bin/pytest tests/test_resolver.py -q` — 9 passed.
+Required combined command was run: `.venv/bin/pytest tests/test_resolver.py
+tests/test_luna.py -q` — 10 passed.

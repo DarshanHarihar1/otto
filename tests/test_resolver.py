@@ -1,4 +1,5 @@
 from unittest.mock import AsyncMock, patch
+from types import SimpleNamespace
 
 from app.luna import VariantMatch
 from app.registry import Registry
@@ -152,6 +153,46 @@ async def test_price_comes_from_shopify_response_not_model():
     mock_get_product.assert_awaited_once_with("beminimalist.co", "sal-serum")
 
 
+async def test_quote_uses_luna_selected_shopify_variant_and_price():
+    with (
+        patch(
+            "app.resolver.search_suggest",
+            AsyncMock(
+                return_value=[
+                    {
+                        "handle": "sal-serum",
+                        "title": "Salicylic Acid 2% Serum",
+                        "vendor": "Minimalist",
+                    }
+                ]
+            ),
+        ),
+        patch("app.resolver.match_variant", AsyncMock(return_value=_match())),
+        patch(
+            "app.resolver.match_shopify_variant",
+            AsyncMock(return_value=SimpleNamespace(shopify_variant_id="456")),
+            create=True,
+        ) as mock_match_shopify_variant,
+        patch(
+            "app.resolver.get_product",
+            AsyncMock(
+                return_value={
+                    "variants": [
+                        {"id": 123, "title": "10ml", "price": "199.00"},
+                        {"id": 456, "title": "30ml", "price": "549.00"},
+                    ]
+                }
+            ),
+        ),
+    ):
+        quote = await resolve(_identification(), REGISTRY)
+
+    assert quote is not None
+    assert quote.shopify_variant_id == "456"
+    assert quote.price_paise == 54900
+    mock_match_shopify_variant.assert_awaited_once()
+
+
 async def test_fanout_gets_winning_handle_from_its_source_domain():
     identification = _identification().model_copy(update={"confidence": 0.5})
     with (
@@ -176,6 +217,65 @@ async def test_fanout_gets_winning_handle_from_its_source_domain():
                 ]
             ),
         ),
+        patch(
+            "app.resolver.match_variant",
+            AsyncMock(return_value=_match().model_copy(update={"best_match_handle": "winning-serum"})),
+        ),
+        patch(
+            "app.resolver.get_product",
+            AsyncMock(return_value={"variants": [{"id": 456, "price": "599.00"}]}),
+        ) as mock_get_product,
+    ):
+        quote = await resolve(identification, REGISTRY)
+
+    assert quote is not None
+    assert quote.merchant == "other-skin-store.com"
+    mock_get_product.assert_awaited_once_with("other-skin-store.com", "winning-serum")
+
+
+async def test_breadth_requires_higher_similarity_than_confident_single_store():
+    weak_match = _match().model_copy(update={"similarity": 0.65})
+    search_result = [
+        {
+            "handle": "sal-serum",
+            "title": "Salicylic Acid 2% Serum",
+            "vendor": "Minimalist",
+        }
+    ]
+    with (
+        patch("app.resolver.search_suggest", AsyncMock(return_value=search_result)),
+        patch("app.resolver.match_variant", AsyncMock(return_value=weak_match)),
+        patch(
+            "app.resolver.get_product",
+            AsyncMock(return_value={"variants": [{"id": 123, "price": "549.00"}]}),
+        ) as mock_get_product,
+    ):
+        single_store_quote = await resolve(_identification(), REGISTRY)
+        breadth_quote = await resolve(
+            _identification().model_copy(update={"confidence": 0.5}), REGISTRY
+        )
+
+    assert single_store_quote is not None
+    assert breadth_quote is None
+    assert mock_get_product.await_count == 1
+
+
+async def test_fanout_keeps_searching_when_one_domain_fails():
+    identification = _identification().model_copy(update={"confidence": 0.5})
+
+    async def search(domain: str, query: str) -> list[dict]:
+        if domain == "beminimalist.co":
+            raise TimeoutError("merchant timed out")
+        return [
+            {
+                "handle": "winning-serum",
+                "title": "Salicylic Acid Serum 2%",
+                "vendor": "Minimalist",
+            }
+        ]
+
+    with (
+        patch("app.resolver.search_suggest", side_effect=search),
         patch(
             "app.resolver.match_variant",
             AsyncMock(return_value=_match().model_copy(update={"best_match_handle": "winning-serum"})),
