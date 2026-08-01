@@ -36,7 +36,7 @@ settings = Settings(
     # actually needs each value — isn't blocked on a secret that can't exist yet.
     linq_webhook_secret=os.environ.get("LINQ_WEBHOOK_SECRET", ""),
     openai_api_key=_require("OPENAI_API_KEY"),
-    prava_api_key=os.environ.get("PRAVA_SECRET_KEY") or os.environ.get("PRAVA_API_KEY", ""),
+    prava_api_key=os.environ.get("PRAVA_SECRET_KEY", ""),
     prava_base_url=os.environ.get("PRAVA_BASE_URL", "https://sandbox.api.prava.space"),
     public_base_url=os.environ.get("PUBLIC_BASE_URL", ""),
     supabase_db_url=_require("SUPABASE_DB_URL"),
