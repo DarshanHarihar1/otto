@@ -43,14 +43,22 @@ async def send_text(chat_id: str, text: str) -> None:
         await client.post(
             f"{LINQ_BASE}/chats/{chat_id}/messages",
             headers={"Authorization": f"Bearer {settings.linq_api_token}"},
-            json={"text": text},
+            json={"message": {"parts": [{"type": "text", "value": text}]}},
             timeout=15,
         )
 
 
+def _extract_text(parts: list[dict]) -> str:
+    for part in parts:
+        if part.get("type") == "text":
+            return part.get("value", "")
+    return ""
+
+
 async def _handle_message_received(payload: dict) -> None:
-    chat_id = payload["data"]["chat_id"]
-    text = payload["data"].get("text", "")
+    data = payload["data"]
+    chat_id = data["chat"]["id"]
+    text = _extract_text(data.get("parts", []))
     await send_text(chat_id, f"got it: {text}" if text else "got your message")
 
 
@@ -66,6 +74,6 @@ async def linq_webhook(
     if not _verify_signature(body, webhook_id, webhook_timestamp, webhook_signature):
         raise HTTPException(status_code=401, detail="bad signature")
     payload = await request.json()
-    if payload.get("event") == "message.received":
+    if payload.get("event_type") == "message.received":
         background_tasks.add_task(_handle_message_received, payload)
     return {"ok": True}

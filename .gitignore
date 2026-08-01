@@ -3,3 +3,5 @@ __pycache__/
 *.pyc
 .venv/
 data/merchants.csv
+*.egg-info/
+.pytest_cache/

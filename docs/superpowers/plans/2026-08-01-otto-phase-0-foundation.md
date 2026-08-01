@@ -166,9 +166,14 @@ def _require(key: str) -> str:
 
 settings = Settings(
     linq_api_token=_require("LINQ_API_TOKEN"),
-    linq_webhook_secret=_require("LINQ_WEBHOOK_SECRET"),
+    # linq_webhook_secret and prava_api_key are NOT _require()'d: the webhook
+    # secret only exists once Task 4 of this same phase creates the Linq
+    # subscription, and the Prava key is obtained separately (Phase 4). Both
+    # default to "" so config loading — and every task before the one that
+    # actually needs each value — isn't blocked on a secret that can't exist yet.
+    linq_webhook_secret=os.environ.get("LINQ_WEBHOOK_SECRET", ""),
     openai_api_key=_require("OPENAI_API_KEY"),
-    prava_api_key=_require("PRAVA_API_KEY"),
+    prava_api_key=os.environ.get("PRAVA_API_KEY", ""),
     prava_base_url=os.environ.get("PRAVA_BASE_URL", "https://sandbox.api.prava.space"),
     supabase_db_url=_require("SUPABASE_DB_URL"),
     demo_user_phone=_require("DEMO_USER_PHONE"),
