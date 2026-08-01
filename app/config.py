@@ -13,6 +13,8 @@ class Settings:
     prava_api_key: str
     prava_base_url: str
     supabase_db_url: str
+    supabase_url: str
+    supabase_service_key: str
     demo_user_phone: str
     confidence_threshold: float
 
@@ -36,6 +38,8 @@ settings = Settings(
     prava_api_key=os.environ.get("PRAVA_API_KEY", ""),
     prava_base_url=os.environ.get("PRAVA_BASE_URL", "https://sandbox.api.prava.space"),
     supabase_db_url=_require("SUPABASE_DB_URL"),
+    supabase_url=_require("SUPABASE_URL"),
+    supabase_service_key=_require("SUPABASE_SERVICE_KEY"),
     demo_user_phone=_require("DEMO_USER_PHONE"),
     confidence_threshold=float(os.environ.get("CONFIDENCE_THRESHOLD", "0.80")),
 )
