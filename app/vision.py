@@ -1,14 +1,20 @@
 import asyncio
 import base64
+import io
 from collections.abc import Collection
 
 from openai import OpenAI
+from PIL import Image
 from pydantic import BaseModel
 
 from app.categories import load_known_categories
 from app.config import settings
 
 _client = OpenAI(api_key=settings.openai_api_key)
+
+# Phone photos easily blow past the org's 10k TPM vision budget; downscale first.
+_MAX_IMAGE_EDGE = 1280
+_JPEG_QUALITY = 80
 
 
 class Identification(BaseModel):
@@ -36,15 +42,26 @@ _SYSTEM_PROMPT = (
 
 
 def _build_system_prompt(known_categories: Collection[str]) -> str:
-    registry_categories = "\n".join(f"- {category}" for category in sorted(known_categories))
+    # Compact list — bullet lines burn tokens on every call.
+    registry_categories = "; ".join(sorted(known_categories))
     return (
         f"{_SYSTEM_PROMPT}\n\n"
         "For `category`, choose exactly one string from this merchant registry "
         "when the product maps to one of them. Do not invent, reword, or "
         "broaden categories. If no registry category fits or the category "
-        "cannot be determined confidently, otherwise set category to null.\n"
-        f"Merchant registry categories:\n{registry_categories}"
+        "cannot be determined confidently, set category to null. "
+        f"Registry: {registry_categories}"
     )
+
+
+def _downscale_for_vision(image_bytes: bytes) -> bytes:
+    """Shrink/re-encode so Responses API image tokens stay under TPM limits."""
+    with Image.open(io.BytesIO(image_bytes)) as img:
+        img = img.convert("RGB")
+        img.thumbnail((_MAX_IMAGE_EDGE, _MAX_IMAGE_EDGE), Image.Resampling.LANCZOS)
+        out = io.BytesIO()
+        img.save(out, format="JPEG", quality=_JPEG_QUALITY, optimize=True)
+        return out.getvalue()
 
 
 def _parse_identification(
@@ -61,6 +78,7 @@ def _parse_identification(
                     {
                         "type": "input_image",
                         "image_url": f"data:image/jpeg;base64,{b64}",
+                        "detail": "low",
                     },
                 ],
             },
@@ -73,7 +91,8 @@ def _parse_identification(
 async def identify(
     image_bytes: bytes, known_categories: Collection[str] | None = None
 ) -> Identification | None:
-    b64 = base64.b64encode(image_bytes).decode()
+    compact = await asyncio.to_thread(_downscale_for_vision, image_bytes)
+    b64 = base64.b64encode(compact).decode()
     return await asyncio.to_thread(
         _parse_identification, b64, known_categories or load_known_categories()
     )

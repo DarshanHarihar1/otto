@@ -12,6 +12,7 @@ dependencies = [
     "psycopg[binary]>=3.2",
     "pydantic>=2.9",
     "supabase>=2.9",
+    "pillow>=10.0",
 ]
 
 [project.optional-dependencies]
