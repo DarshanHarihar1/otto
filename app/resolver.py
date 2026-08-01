@@ -25,6 +25,12 @@ def _domain_for_brand(identification: Identification, registry: Registry) -> str
     return None
 
 
+def _brand_matches(vendor: str, brand: str) -> bool:
+    vendor = vendor.casefold().strip()
+    brand = brand.casefold().strip()
+    return bool(vendor and brand) and (brand in vendor or vendor in brand)
+
+
 async def resolve(identification: Identification, registry: Registry) -> Quote | None:
     """Find a purchase quote from Shopify's current product data."""
     query = " ".join(identification.search_terms) or identification.product or ""
@@ -48,25 +54,33 @@ async def resolve(identification: Identification, registry: Registry) -> Quote |
     if not all_candidates:
         return None
 
-    if identification.brand and identification.confidence >= BRAND_CONFIDENCE_FLOOR:
-        candidates = [candidate for _, candidate in all_candidates]
-        domain = all_candidates[0][0]
-    else:
-        exact = [
-            (domain, candidate)
-            for domain, candidate in all_candidates
-            if identification.brand
-            and identification.brand.lower() in candidate.get("vendor", "").lower()
-        ]
-        if not exact:
-            return None
-        candidates = [candidate for _, candidate in exact]
-        domain = exact[0][0]
+    exact = [
+        (domain, candidate)
+        for domain, candidate in all_candidates
+        if identification.brand
+        and _brand_matches(candidate.get("vendor", ""), identification.brand)
+    ]
+    if not exact:
+        return None
+
+    candidates = [candidate for _, candidate in exact]
 
     match = await match_variant(identification, candidates)
     if match is None or not match.best_match_handle or match.similarity < 0.6:
         return None
 
+    source = next(
+        (
+            (domain, candidate)
+            for domain, candidate in exact
+            if candidate.get("handle") == match.best_match_handle
+        ),
+        None,
+    )
+    if source is None:
+        return None
+
+    domain, _ = source
     product = await get_product(domain, match.best_match_handle)
     variant = product["variants"][0]
     return Quote(

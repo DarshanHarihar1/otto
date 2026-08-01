@@ -12,3 +12,17 @@ Added resolver unit tests for the brand hard filter, Shopify-derived price, and
 missing variant match, plus orchestration coverage for QUOTED and UNBUYABLE.
 
 Verification: `.venv/bin/pytest -v` — 45 passed (3 existing dependency warnings).
+
+## Review remediation
+
+- Enforced case-insensitive vendor/brand substring matching on the confident
+  single-store route as well as fan-out routes.
+- Retained each candidate's source domain through variant selection, then fetch
+  the winning handle from its source domain.
+- Added regression coverage for wrong-vendor rejection and a winner from the
+  second fan-out domain.
+
+Evidence: `.venv/bin/pytest tests/test_resolver.py tests/test_registry.py -q`
+— 7 passed. Full suite: 42 passed, 5 failed because sandboxed external
+Supabase/OpenAI/Shopify requests could not connect; failures are unrelated to
+the resolver changes.

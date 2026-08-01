@@ -70,6 +70,33 @@ async def test_confident_brand_routes_to_single_store_only():
     )
 
 
+async def test_confident_brand_rejects_wrong_vendor_candidate():
+    with (
+        patch(
+            "app.resolver.search_suggest",
+            AsyncMock(
+                return_value=[
+                    {
+                        "handle": "sal-serum",
+                        "title": "Salicylic Acid 2% Serum",
+                        "vendor": "Wrong Brand",
+                    }
+                ]
+            ),
+        ),
+        patch("app.resolver.match_variant", AsyncMock(return_value=_match())) as mock_match,
+        patch(
+            "app.resolver.get_product",
+            AsyncMock(return_value={"variants": [{"id": 123, "price": "549.00"}]}),
+        ) as mock_get_product,
+    ):
+        quote = await resolve(_identification(), REGISTRY)
+
+    assert quote is None
+    mock_match.assert_not_awaited()
+    mock_get_product.assert_not_awaited()
+
+
 async def test_price_comes_from_shopify_response_not_model():
     with (
         patch(
@@ -95,6 +122,46 @@ async def test_price_comes_from_shopify_response_not_model():
     assert quote is not None
     assert quote.price_paise == 99900
     mock_get_product.assert_awaited_once_with("beminimalist.co", "sal-serum")
+
+
+async def test_fanout_gets_winning_handle_from_its_source_domain():
+    identification = _identification().model_copy(update={"confidence": 0.5})
+    with (
+        patch(
+            "app.resolver.search_suggest",
+            AsyncMock(
+                side_effect=[
+                    [
+                        {
+                            "handle": "first-serum",
+                            "title": "Salicylic Acid Serum",
+                            "vendor": "Minimalist",
+                        }
+                    ],
+                    [
+                        {
+                            "handle": "winning-serum",
+                            "title": "Salicylic Acid Serum 2%",
+                            "vendor": "Minimalist",
+                        }
+                    ],
+                ]
+            ),
+        ),
+        patch(
+            "app.resolver.match_variant",
+            AsyncMock(return_value=_match().model_copy(update={"best_match_handle": "winning-serum"})),
+        ),
+        patch(
+            "app.resolver.get_product",
+            AsyncMock(return_value={"variants": [{"id": 456, "price": "599.00"}]}),
+        ) as mock_get_product,
+    ):
+        quote = await resolve(identification, REGISTRY)
+
+    assert quote is not None
+    assert quote.merchant == "other-skin-store.com"
+    mock_get_product.assert_awaited_once_with("other-skin-store.com", "winning-serum")
 
 
 async def test_no_quote_when_variant_match_is_missing():
