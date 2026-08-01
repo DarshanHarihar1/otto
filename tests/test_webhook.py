@@ -11,7 +11,7 @@ from fastapi.testclient import TestClient
 
 from app.config import settings
 from app.main import app
-from app.routes.webhook import _extract_text, _handle_message_received
+from app.routes.webhook import _extract_media_url, _extract_text, _handle_message_received
 
 client = TestClient(app)
 
@@ -170,9 +170,41 @@ def test_extract_text_returns_empty_for_no_text_part():
     assert _extract_text([{"type": "media", "value": "https://..."}]) == ""
 
 
+def test_extract_media_url_prefers_url_key():
+    parts = [
+        {"type": "text", "value": "hello"},
+        {"type": "media", "url": "https://cdn.linqapp.com/photo.jpg"},
+        {"type": "media", "value": "https://cdn.linqapp.com/other.jpg"},
+    ]
+    assert _extract_media_url(parts) == "https://cdn.linqapp.com/photo.jpg"
+
+
 async def test_handle_message_received_parses_real_payload_shape():
     with patch("app.routes.webhook.send_text", AsyncMock()) as mock_send:
         await _handle_message_received(REAL_MESSAGE_RECEIVED_PAYLOAD)
     mock_send.assert_awaited_once_with(
         "6e4a83dc-ffba-4761-924c-5292fd8d84e3", "got it: hello otto"
+    )
+
+
+async def test_handle_message_received_routes_media_part_to_orchestrator():
+    payload = {
+        **REAL_MESSAGE_RECEIVED_PAYLOAD,
+        "data": {
+            **REAL_MESSAGE_RECEIVED_PAYLOAD["data"],
+            "parts": [
+                {"type": "media", "url": "https://cdn.linqapp.com/photo.jpg"}
+            ],
+        },
+    }
+
+    with patch(
+        "app.orchestrator.handle_photo_message", AsyncMock()
+    ) as mock_handle_photo:
+        await _handle_message_received(payload)
+
+    mock_handle_photo.assert_awaited_once_with(
+        "+919900475117",
+        "6e4a83dc-ffba-4761-924c-5292fd8d84e3",
+        "https://cdn.linqapp.com/photo.jpg",
     )

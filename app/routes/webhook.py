@@ -57,11 +57,26 @@ def _extract_text(parts: list[dict]) -> str:
     return ""
 
 
+def _extract_media_url(parts: list[dict]) -> str | None:
+    for part in parts:
+        if part.get("type") == "media":
+            return part.get("url") or part.get("value")
+    return None
+
+
 async def _handle_message_received(payload: dict) -> None:
     data = payload["data"]
     chat_id = data["chat"]["id"]
-    text = _extract_text(data.get("parts", []))
-    await send_text(chat_id, f"got it: {text}" if text else "got your message")
+    phone = data["sender_handle"]["handle"]
+    parts = data.get("parts", [])
+    media_url = _extract_media_url(parts)
+    if media_url:
+        from app.orchestrator import handle_photo_message
+
+        await handle_photo_message(phone, chat_id, media_url)
+    else:
+        text = _extract_text(parts)
+        await send_text(chat_id, f"got it: {text}" if text else "got your message")
 
 
 @router.post("/webhook/linq")
