@@ -2,6 +2,7 @@ import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from app.config import settings
+from app.resolver import Quote
 from app.state_machine import ItemState
 from app.vision import Identification
 
@@ -50,13 +51,15 @@ async def test_handle_photo_message_creates_and_updates_item():
         patch("app.orchestrator.archive_photo", return_value="path.jpg") as mock_archive,
         patch("app.orchestrator.identify", AsyncMock(return_value=fake_result)) as mock_identify,
         patch("app.orchestrator.compose_and_send", AsyncMock()) as mock_compose,
+        patch("app.orchestrator.resolve", AsyncMock(return_value=None)),
+        patch("app.orchestrator.send_text", AsyncMock()),
     ):
         item_id = await handle_photo_message(
             settings.demo_user_phone, "chat1", "https://x/y.jpg"
         )
 
     assert item_id
-    assert mock_get_conn.call_count == 2
+    assert mock_get_conn.call_count == 3
     mock_download.assert_awaited_once_with("https://x/y.jpg")
     mock_archive.assert_called_once_with(item_id, b"bytes")
     assert mock_identify.await_args.args[0] == b"bytes"
@@ -201,13 +204,15 @@ async def test_handle_photo_message_reuses_open_needs_angle_item():
         patch("app.orchestrator.archive_photo", return_value="path.jpg") as mock_archive,
         patch("app.orchestrator.identify", AsyncMock(return_value=fake_result)) as mock_identify,
         patch("app.orchestrator.compose_and_send", AsyncMock()) as mock_compose,
+        patch("app.orchestrator.resolve", AsyncMock(return_value=None)),
+        patch("app.orchestrator.send_text", AsyncMock()),
     ):
         item_id = await handle_photo_message(
             settings.demo_user_phone, "chat1", "https://x/y.jpg"
         )
 
     assert item_id == existing_item_id
-    assert mock_get_conn.call_count == 2
+    assert mock_get_conn.call_count == 3
     mock_download.assert_awaited_once_with("https://x/y.jpg")
     mock_archive.assert_called_once_with(existing_item_id, b"bytes")
     assert mock_identify.await_args.args[0] == b"bytes"
@@ -286,6 +291,8 @@ async def test_typing_starts_before_download_and_stops_before_composing():
         patch("app.orchestrator.archive_photo", return_value="path.jpg"),
         patch("app.orchestrator.identify", AsyncMock(return_value=fake_result)),
         patch("app.orchestrator.compose_and_send", side_effect=record_compose),
+        patch("app.orchestrator.resolve", AsyncMock(return_value=None)),
+        patch("app.orchestrator.send_text", AsyncMock()),
     ):
         await handle_photo_message(settings.demo_user_phone, "chat1", "https://x/y.jpg")
 
@@ -310,6 +317,8 @@ async def test_typing_failure_does_not_prevent_successful_reply():
         patch("app.orchestrator.archive_photo", return_value="path.jpg"),
         patch("app.orchestrator.identify", AsyncMock(return_value=fake_result)),
         patch("app.orchestrator.compose_and_send", AsyncMock()) as mock_compose,
+        patch("app.orchestrator.resolve", AsyncMock(return_value=None)),
+        patch("app.orchestrator.send_text", AsyncMock()),
     ):
         item_id = await handle_photo_message(
             settings.demo_user_phone, "chat1", "https://x/y.jpg"
@@ -317,3 +326,86 @@ async def test_typing_failure_does_not_prevent_successful_reply():
 
     assert item_id is not None
     mock_compose.assert_awaited_once_with("chat1", ItemState.IDENTIFIED, fake_result)
+
+
+async def test_identified_item_reaches_quoted_with_shopify_price():
+    from app.orchestrator import handle_photo_message
+
+    fake_result = Identification(
+        object_type="bottle",
+        brand="Minimalist",
+        product="Serum",
+        variant="30ml",
+        category="Beauty & Personal Care/Skin Care",
+        search_terms=["serum"],
+        confidence=0.95,
+        reasoning="clear",
+        missing_info=None,
+        suggested_photo=None,
+    )
+    quote = Quote(
+        merchant="beminimalist.co",
+        shopify_variant_id="123",
+        price_paise=54900,
+        handle="serum",
+    )
+    mock_get_conn, mock_cur = _mock_db()
+    mock_cur.fetchone.side_effect = [("user-uuid-1",), None]
+    with (
+        patch("app.orchestrator.get_conn", mock_get_conn),
+        patch("app.orchestrator.download_media", AsyncMock(return_value=b"bytes")),
+        patch("app.orchestrator.archive_photo", return_value="path.jpg"),
+        patch("app.orchestrator.identify", AsyncMock(return_value=fake_result)),
+        patch("app.orchestrator.send_typing", AsyncMock()),
+        patch("app.orchestrator.compose_and_send", AsyncMock()),
+        patch("app.orchestrator.resolve", AsyncMock(return_value=quote)),
+        patch("app.orchestrator.send_text", AsyncMock()) as mock_send,
+    ):
+        await handle_photo_message(settings.demo_user_phone, "chat1", "https://x/y.jpg")
+
+    quoted_sql, quoted_params = mock_cur.execute.call_args_list[-1][0]
+    assert "state = 'QUOTED'" in quoted_sql
+    assert quoted_params == (
+        "beminimalist.co",
+        "123",
+        54900,
+        mock_cur.execute.call_args_list[2][0][1][0],
+    )
+    mock_send.assert_awaited_once_with("chat1", "Minimalist Serum · 30ml · ₹549")
+
+
+async def test_identified_item_without_quote_reaches_unbuyable():
+    from app.orchestrator import handle_photo_message
+
+    fake_result = Identification(
+        object_type="bottle",
+        brand="Minimalist",
+        product="Serum",
+        variant="30ml",
+        category="Beauty & Personal Care/Skin Care",
+        search_terms=["serum"],
+        confidence=0.95,
+        reasoning="clear",
+        missing_info=None,
+        suggested_photo=None,
+    )
+    mock_get_conn, mock_cur = _mock_db()
+    mock_cur.fetchone.side_effect = [("user-uuid-1",), None]
+    with (
+        patch("app.orchestrator.get_conn", mock_get_conn),
+        patch("app.orchestrator.download_media", AsyncMock(return_value=b"bytes")),
+        patch("app.orchestrator.archive_photo", return_value="path.jpg"),
+        patch("app.orchestrator.identify", AsyncMock(return_value=fake_result)),
+        patch("app.orchestrator.send_typing", AsyncMock()),
+        patch("app.orchestrator.compose_and_send", AsyncMock()),
+        patch("app.orchestrator.resolve", AsyncMock(return_value=None)),
+        patch("app.orchestrator.send_text", AsyncMock()) as mock_send,
+    ):
+        await handle_photo_message(settings.demo_user_phone, "chat1", "https://x/y.jpg")
+
+    unbuyable_sql, unbuyable_params = mock_cur.execute.call_args_list[-1][0]
+    assert "state = 'UNBUYABLE'" in unbuyable_sql
+    assert len(unbuyable_params) == 1
+    mock_send.assert_awaited_once_with(
+        "chat1", "Couldn't find Minimalist Serum anywhere I can buy from."
+    )

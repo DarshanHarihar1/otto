@@ -3,17 +3,18 @@ import json
 import logging
 import uuid
 
-from app.categories import load_known_categories
 from app.db import get_conn
+from app.registry import load_registry
 from app.media import archive_photo, download_media
 from app.reply_composer import compose_and_send, send_typing
+from app.resolver import resolve
 from app.routes.webhook import send_text
 from app.state_machine import ItemState, gate_identification
 from app.vision import identify
 
 logger = logging.getLogger(__name__)
 
-_KNOWN_CATEGORIES = load_known_categories()
+_REGISTRY = load_registry()
 
 
 async def handle_photo_message(
@@ -50,10 +51,10 @@ async def handle_photo_message(
 
         image_bytes = await download_media(media_url)
         storage_path = await asyncio.to_thread(archive_photo, item_id, image_bytes)
-        result = await identify(image_bytes, _KNOWN_CATEGORIES)
+        result = await identify(image_bytes, _REGISTRY.categories())
         if result is None:
             raise ValueError("Vision identification returned no parsed result")
-        state = gate_identification(result, _KNOWN_CATEGORIES)
+        state = gate_identification(result, _REGISTRY.categories())
         logger.info(
             "Identification gate chose state=%s confidence=%s category=%r",
             state.value,
@@ -91,6 +92,36 @@ async def handle_photo_message(
         except Exception:
             logger.exception("Could not stop typing indicator for chat %s", chat_id)
         await compose_and_send(chat_id, state, result)
+        if state == ItemState.IDENTIFIED:
+            quote = await resolve(result, _REGISTRY)
+            if quote is None:
+                with get_conn() as conn, conn.cursor() as cur:
+                    cur.execute(
+                        "UPDATE items SET state = 'UNBUYABLE', updated_at = now() WHERE id = %s",
+                        (item_id,),
+                    )
+                await send_text(
+                    chat_id,
+                    f"Couldn't find {result.brand} {result.product} anywhere I can buy from.",
+                )
+            else:
+                with get_conn() as conn, conn.cursor() as cur:
+                    cur.execute(
+                        """UPDATE items SET state = 'QUOTED', merchant = %s,
+                           shopify_variant_id = %s, last_price_paise = %s, updated_at = now()
+                           WHERE id = %s""",
+                        (
+                            quote.merchant,
+                            quote.shopify_variant_id,
+                            quote.price_paise,
+                            item_id,
+                        ),
+                    )
+                price_rupees = quote.price_paise / 100
+                await send_text(
+                    chat_id,
+                    f"{result.brand} {result.product} · {result.variant} · ₹{price_rupees:.0f}",
+                )
         return item_id
     except Exception:
         logger.exception("Photo message pipeline failed")

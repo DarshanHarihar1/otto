@@ -1,6 +1,6 @@
-import csv
 from pathlib import Path
 
+from app.registry import load_registry
 
 _FALLBACK_KNOWN_CATEGORIES = frozenset(
     {
@@ -11,27 +11,18 @@ _FALLBACK_KNOWN_CATEGORIES = frozenset(
 )
 
 
-def load_known_categories() -> frozenset[str]:
-    """Load categories that the current merchant registry can fulfill."""
+def _registry_path() -> str:
     data_dir = Path(__file__).resolve().parent.parent / "data"
     merchants_path = data_dir / "merchants.csv"
     if not merchants_path.exists():
         merchants_path = data_dir / "merchants_source.csv"
+    return str(merchants_path)
 
+
+def load_known_categories() -> frozenset[str]:
+    """Load categories that the current merchant registry can fulfill."""
     try:
-        with merchants_path.open(newline="", encoding="utf-8") as merchants_file:
-            rows = csv.DictReader(merchants_file)
-            category_key = "category" if "category" in (rows.fieldnames or []) else "Category"
-            has_ok_column = "ok" in (rows.fieldnames or [])
-            categories = frozenset(
-                row[category_key]
-                for row in rows
-                if row.get(category_key)
-                and (
-                    not has_ok_column
-                    or row.get("ok", "").strip().lower() == "true"
-                )
-            )
+        categories = load_registry(_registry_path()).categories()
+        return frozenset(categories) or _FALLBACK_KNOWN_CATEGORIES
     except FileNotFoundError:
         return _FALLBACK_KNOWN_CATEGORIES
-    return categories or _FALLBACK_KNOWN_CATEGORIES
