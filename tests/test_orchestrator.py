@@ -174,6 +174,56 @@ async def test_low_confidence_reaches_needs_angle_state():
     assert update_params[6] == "NEEDS_ANGLE"
 
 
+async def test_handle_photo_message_reuses_open_needs_angle_item():
+    from app.orchestrator import handle_photo_message
+
+    existing_item_id = "existing-item-uuid"
+    fake_result = Identification(
+        object_type="serum bottle",
+        brand="Minimalist",
+        product="Salicylic Acid 2% Serum",
+        variant="30ml",
+        category="Beauty & Personal Care/Skin Care",
+        search_terms=["salicylic acid 2% serum"],
+        confidence=0.95,
+        reasoning="Clear front label with brand and concentration visible.",
+        missing_info=None,
+        suggested_photo=None,
+    )
+    mock_get_conn, mock_cur = _mock_db()
+    mock_cur.fetchone.side_effect = [("user-uuid-1",), (existing_item_id,)]
+    with (
+        patch("app.orchestrator.get_conn", mock_get_conn),
+        patch(
+            "app.orchestrator.download_media", AsyncMock(return_value=b"bytes")
+        ) as mock_download,
+        patch("app.orchestrator.archive_photo", return_value="path.jpg") as mock_archive,
+        patch("app.orchestrator.identify", AsyncMock(return_value=fake_result)) as mock_identify,
+        patch("app.orchestrator.compose_and_send", AsyncMock()) as mock_compose,
+    ):
+        item_id = await handle_photo_message(
+            settings.demo_user_phone, "chat1", "https://x/y.jpg"
+        )
+
+    assert item_id == existing_item_id
+    assert mock_get_conn.call_count == 2
+    mock_download.assert_awaited_once_with("https://x/y.jpg")
+    mock_archive.assert_called_once_with(existing_item_id, b"bytes")
+    mock_identify.assert_awaited_once_with(b"bytes")
+    mock_compose.assert_awaited_once_with("chat1", ItemState.IDENTIFIED, fake_result)
+
+    calls = mock_cur.execute.call_args_list
+    assert not any("INSERT INTO items" in c[0][0] for c in calls)
+
+    open_item_sql, open_item_params = calls[1][0]
+    assert "state = 'NEEDS_ANGLE'" in open_item_sql
+    assert open_item_params == ("user-uuid-1",)
+
+    update_sql, update_params = calls[2][0]
+    assert "UPDATE items" in update_sql
+    assert update_params[7] == existing_item_id
+
+
 async def test_unknown_category_reaches_unbuyable_state():
     from app.orchestrator import handle_photo_message
 
