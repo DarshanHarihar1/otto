@@ -170,13 +170,17 @@ def test_extract_text_returns_empty_for_no_text_part():
     assert _extract_text([{"type": "media", "value": "https://..."}]) == ""
 
 
-def test_extract_media_url_prefers_url_key():
+def test_extract_media_url_uses_url_key():
     parts = [
         {"type": "text", "value": "hello"},
         {"type": "media", "url": "https://cdn.linqapp.com/photo.jpg"},
-        {"type": "media", "value": "https://cdn.linqapp.com/other.jpg"},
     ]
     assert _extract_media_url(parts) == "https://cdn.linqapp.com/photo.jpg"
+
+
+def test_extract_media_url_ignores_value_only_parts():
+    parts = [{"type": "media", "value": "https://cdn.linqapp.com/other.jpg"}]
+    assert _extract_media_url(parts) is None
 
 
 async def test_handle_message_received_parses_real_payload_shape():

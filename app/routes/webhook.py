@@ -60,7 +60,7 @@ def _extract_text(parts: list[dict]) -> str:
 def _extract_media_url(parts: list[dict]) -> str | None:
     for part in parts:
         if part.get("type") == "media":
-            return part.get("url") or part.get("value")
+            return part.get("url")
     return None
 
 
