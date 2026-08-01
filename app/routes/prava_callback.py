@@ -32,10 +32,15 @@ async def _finalize_payment(session_id: str) -> None:
     result: PaymentResult | None = None
     try:
         result = await get_payment_result(session_id)
+        if result.status != "awaiting_result" or not result.credentials_ready:
+            raise ValueError(
+                f"Payment result is not ready (status={result.status!r})"
+            )
+        assert result.txn_ref_id is not None
         await report_status(session_id, "APPROVED", result.txn_ref_id)
         new_state = "PAID"
     except Exception:
-        if result is not None:
+        if result is not None and result.txn_ref_id:
             try:
                 await report_status(session_id, "DECLINED", result.txn_ref_id)
             except Exception:

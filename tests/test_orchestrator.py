@@ -449,14 +449,13 @@ async def test_handle_text_message_creates_session_and_sends_price_then_approval
     )
     assert mock_get_conn.call_count == 2
     calls = mock_cur.execute.call_args_list
+    assert "UPDATE items" in calls[0][0][0]
     assert "state = 'QUOTED'" in calls[0][0][0]
     assert calls[0][0][1] == (settings.demo_user_phone,)
-    assert "state = 'AWAITING_APPROVAL'" in calls[1][0][0]
-    assert calls[1][0][1] == ("item-uuid-1",)
-    assert "INSERT INTO purchases" in calls[2][0][0]
-    assert calls[2][0][1] == ("item-uuid-1", "prava-session-1", 54900)
-    assert "INSERT INTO events" in calls[3][0][0]
-    assert json.loads(calls[3][0][1][1]) == {"chat_id": "chat1"}
+    assert "INSERT INTO purchases" in calls[1][0][0]
+    assert calls[1][0][1] == ("item-uuid-1", "prava-session-1", 54900)
+    assert "INSERT INTO events" in calls[2][0][0]
+    assert json.loads(calls[2][0][1][1]) == {"chat_id": "chat1"}
     assert mock_send.await_args_list[0].args == (
         "chat1",
         "₹549 for Minimalist Salicylic Acid Serum. Sending the approval link now.",
@@ -465,3 +464,40 @@ async def test_handle_text_message_creates_session_and_sends_price_then_approval
         "chat1",
         "https://prava.example/approve",
     )
+
+
+async def test_handle_text_message_only_creates_one_session_when_second_yes_loses_claim():
+    from app.orchestrator import handle_text_message
+    from app.prava import Session
+
+    mock_get_conn, mock_cur = _mock_db()
+    mock_cur.fetchone.side_effect = [
+        (
+            "item-uuid-1",
+            "beminimalist.co",
+            "variant-123",
+            54900,
+            "Minimalist",
+            "Salicylic Acid Serum",
+        ),
+        None,
+    ]
+    session = Session(
+        session_id="prava-session-1", approval_url="https://prava.example/approve"
+    )
+    with (
+        patch("app.orchestrator.get_conn", mock_get_conn),
+        patch(
+            "app.orchestrator.create_session", AsyncMock(return_value=session)
+        ) as mock_create_session,
+        patch("app.orchestrator.send_text", AsyncMock()),
+    ):
+        await handle_text_message(settings.demo_user_phone, "chat1", "yes")
+        await handle_text_message(settings.demo_user_phone, "chat1", "yes")
+
+    mock_create_session.assert_awaited_once()
+    claim_calls = [
+        call for call in mock_cur.execute.call_args_list if "UPDATE items" in call[0][0]
+    ]
+    assert len(claim_calls) == 2
+    assert all("AND i.state = 'QUOTED'" in call[0][0] for call in claim_calls)

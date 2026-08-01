@@ -137,37 +137,54 @@ async def handle_photo_message(
 
 async def handle_text_message(user_phone: str, chat_id: str, text: str) -> None:
     text_lower = text.strip().lower()
+    if text_lower not in ("yes", "buy", "buy it", "confirm"):
+        return
+
     with get_conn() as conn, conn.cursor() as cur:
         cur.execute(
-            """SELECT i.id, i.merchant, i.shopify_variant_id, i.last_price_paise, i.brand, i.product
-               FROM items i JOIN users u ON u.id = i.user_id
-               WHERE u.phone = %s AND i.state = 'QUOTED'
-               ORDER BY i.updated_at DESC LIMIT 1""",
+            """WITH quoted_item AS (
+                   SELECT i.id
+                   FROM items i JOIN users u ON u.id = i.user_id
+                   WHERE u.phone = %s AND i.state = 'QUOTED'
+                   ORDER BY i.updated_at DESC LIMIT 1
+               )
+               UPDATE items i
+               SET state = 'AWAITING_APPROVAL', updated_at = now()
+               FROM quoted_item q
+               WHERE i.id = q.id AND i.state = 'QUOTED'
+               RETURNING i.id, i.merchant, i.shopify_variant_id,
+                         i.last_price_paise, i.brand, i.product""",
             (user_phone,),
         )
         row = cur.fetchone()
 
-    if row is None or text_lower not in ("yes", "buy", "buy it", "confirm"):
+    if row is None:
         return
 
     item_id, merchant, variant_id, price_paise, brand, product = row
-    session = await create_session(
-        amount_paise=price_paise,
-        merchant=merchant,
-        line_items=[
-            {
-                "name": f"{brand} {product}",
-                "shopify_variant_id": variant_id,
-                "price": price_paise / 100,
-            }
-        ],
-    )
+    try:
+        session = await create_session(
+            amount_paise=price_paise,
+            merchant=merchant,
+            line_items=[
+                {
+                    "name": f"{brand} {product}",
+                    "shopify_variant_id": variant_id,
+                    "price": price_paise / 100,
+                }
+            ],
+        )
+    except Exception:
+        logger.exception("Could not create Prava session for item %s", item_id)
+        with get_conn() as conn, conn.cursor() as cur:
+            cur.execute(
+                """UPDATE items SET state = 'QUOTED', updated_at = now()
+                   WHERE id = %s AND state = 'AWAITING_APPROVAL'""",
+                (item_id,),
+            )
+        return
 
     with get_conn() as conn, conn.cursor() as cur:
-        cur.execute(
-            "UPDATE items SET state = 'AWAITING_APPROVAL', updated_at = now() WHERE id = %s",
-            (item_id,),
-        )
         cur.execute(
             "INSERT INTO purchases (item_id, prava_session_id, amount_paise, status) VALUES (%s, %s, %s, 'AWAITING_APPROVAL')",
             (item_id, session.session_id, price_paise),

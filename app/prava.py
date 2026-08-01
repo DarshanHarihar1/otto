@@ -15,10 +15,15 @@ class Session(BaseModel):
 
 
 class PaymentResult(BaseModel):
-    card_number: str
-    cvv: str
-    expiry: str
-    txn_ref_id: str
+    status: str
+    card_number: str | None = None
+    cvv: str | None = None
+    expiry: str | None = None
+    txn_ref_id: str | None = None
+
+    @property
+    def credentials_ready(self) -> bool:
+        return bool(self.card_number and self.cvv and self.txn_ref_id)
 
 
 def _headers() -> dict[str, str]:
@@ -88,12 +93,26 @@ async def get_payment_result(session_id: str) -> PaymentResult:
         response.raise_for_status()
         data = response.json()
 
-    line_item = data["transactions"][0]["line_items"][0]
+    line_item = next(
+        (
+            line_item
+            for transaction in data.get("transactions", [])
+            for line_item in transaction.get("line_items", [])
+        ),
+        {},
+    )
+    expiry_month = line_item.get("expiry_month")
+    expiry_year = line_item.get("expiry_year")
     return PaymentResult(
-        card_number=line_item["token"],
-        cvv=line_item["dynamic_cvv"],
-        expiry=f"{line_item['expiry_month']}/{line_item['expiry_year']}",
-        txn_ref_id=line_item["txn_ref_id"],
+        status=data.get("status", ""),
+        card_number=line_item.get("token"),
+        cvv=line_item.get("dynamic_cvv"),
+        expiry=(
+            f"{expiry_month}/{expiry_year}"
+            if expiry_month is not None and expiry_year is not None
+            else None
+        ),
+        txn_ref_id=line_item.get("txn_ref_id"),
     )
 
 
