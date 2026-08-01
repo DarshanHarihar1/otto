@@ -17,6 +17,8 @@ LINQ_BASE = "https://api.linqapp.com/api/partner/v3"
 def _verify_signature(
     body: bytes, msg_id: str | None, timestamp: str | None, signature: str | None
 ) -> bool:
+    if not settings.linq_webhook_secret:
+        return False
     if not (msg_id and timestamp and signature):
         return False
     try:

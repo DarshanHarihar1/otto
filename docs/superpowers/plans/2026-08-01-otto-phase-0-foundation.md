@@ -630,4 +630,4 @@ This is a **live, end-to-end** check, not just green tests. Do not proceed to Ph
 - [ ] Supabase: the `users` table has exactly one row, with `phone = settings.demo_user_phone`.
 - [ ] **Live test:** from your actual phone, text the Linq sandbox number anything (e.g. "hello otto"). Confirm an iMessage reply ("got it: hello otto") arrives within a few seconds.
 - [ ] `GET https://<tunnel-url>/health` returns `{"status": "ok"}` from a browser, proving the tunnel is live and stable.
-- [ ] Everything above is committed to git; `git log --oneline` shows 4 commits for this phase.
+- [ ] Everything above is committed to git; `git log --oneline` shows the phase's commits (feature commits plus any review/live-testing fix rounds — all fixes should trace to a real finding, not scope creep).

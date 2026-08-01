@@ -1,5 +1,6 @@
 # tests/test_webhook.py
 import base64
+import dataclasses
 import hashlib
 import hmac
 import json
@@ -109,6 +110,38 @@ def test_rejects_malformed_timestamp():
             "webhook-signature": "v1,bad",
         },
     )
+    assert resp.status_code == 401
+
+
+def test_rejects_empty_webhook_secret_even_with_valid_signature():
+    # Regression test: settings.linq_webhook_secret defaults to "" until the
+    # Linq subscription exists (see app/config.py). base64.b64decode("") is a
+    # valid (empty) HMAC key, so without an explicit guard, a signature
+    # computed against an empty secret would still verify — fail-open. This
+    # confirms _verify_signature fails closed when the secret is empty,
+    # regardless of whether msg_id/timestamp/signature line up.
+    body = json.dumps({"event": "message.received", "data": {}}).encode()
+    timestamp = str(int(time.time()))
+    empty_secret_settings = dataclasses.replace(settings, linq_webhook_secret="")
+    with patch("app.routes.webhook.settings", empty_secret_settings):
+        # Sign with the empty secret too, so this really is a "otherwise-valid"
+        # signature for the (empty) key in effect — the guard, not a key
+        # mismatch, must be what causes the rejection.
+        key = base64.b64decode("")
+        signed_content = f"msg_1.{timestamp}.{body.decode()}"
+        digest = base64.b64encode(
+            hmac.new(key, signed_content.encode(), hashlib.sha256).digest()
+        ).decode()
+        signature = f"v1,{digest}"
+        resp = client.post(
+            "/webhook/linq",
+            content=body,
+            headers={
+                "webhook-id": "msg_1",
+                "webhook-timestamp": timestamp,
+                "webhook-signature": signature,
+            },
+        )
     assert resp.status_code == 401
 
 
