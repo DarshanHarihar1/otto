@@ -2,6 +2,7 @@
 import base64
 import hmac
 import hashlib
+import logging
 import time
 
 import httpx
@@ -10,6 +11,7 @@ from fastapi import APIRouter, BackgroundTasks, Header, HTTPException, Request
 from app.config import settings
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 LINQ_BASE = "https://api.linqapp.com/api/partner/v3"
 
@@ -69,6 +71,18 @@ async def _handle_message_received(payload: dict) -> None:
     chat_id = data["chat"]["id"]
     phone = data["sender_handle"]["handle"]
     parts = data.get("parts", [])
+    logger.info(
+        "Received message parts: %s",
+        [
+            {
+                "type": part.get("type"),
+                "keys": sorted(part.keys()),
+            }
+            if isinstance(part, dict)
+            else {"type": type(part).__name__, "keys": []}
+            for part in parts
+        ],
+    )
     media_url = _extract_media_url(parts)
     if media_url:
         from app.orchestrator import handle_photo_message

@@ -202,9 +202,12 @@ async def test_handle_message_received_routes_media_part_to_orchestrator():
         },
     }
 
-    with patch(
-        "app.orchestrator.handle_photo_message", AsyncMock()
-    ) as mock_handle_photo:
+    with (
+        patch(
+            "app.orchestrator.handle_photo_message", AsyncMock()
+        ) as mock_handle_photo,
+        patch("app.routes.webhook.send_text", AsyncMock()) as mock_send,
+    ):
         await _handle_message_received(payload)
 
     mock_handle_photo.assert_awaited_once_with(
@@ -212,3 +215,4 @@ async def test_handle_message_received_routes_media_part_to_orchestrator():
         "6e4a83dc-ffba-4761-924c-5292fd8d84e3",
         "https://cdn.linqapp.com/photo.jpg",
     )
+    mock_send.assert_not_awaited()

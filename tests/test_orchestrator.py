@@ -94,3 +94,44 @@ async def test_handle_photo_message_creates_and_updates_item():
     assert event_payload["brand"] == "Minimalist"
     assert event_payload["product"] == "Salicylic Acid 2% Serum"
     assert event_payload["confidence"] == 0.95
+
+
+async def test_handle_photo_message_replies_when_user_is_unknown():
+    from app.orchestrator import handle_photo_message
+
+    mock_get_conn, mock_cur = _mock_db()
+    mock_cur.fetchone.return_value = None
+    with (
+        patch("app.orchestrator.get_conn", mock_get_conn),
+        patch("app.orchestrator.send_text", AsyncMock()) as mock_send,
+    ):
+        item_id = await handle_photo_message("+910000000000", "chat1", "https://x/y.jpg")
+
+    assert item_id is None
+    mock_send.assert_awaited_once_with(
+        "chat1", "Couldn't read that one — try a photo of the front label?"
+    )
+
+
+async def test_handle_photo_message_replies_when_identification_is_missing():
+    from app.orchestrator import handle_photo_message
+
+    mock_get_conn, mock_cur = _mock_db()
+    with (
+        patch("app.orchestrator.get_conn", mock_get_conn),
+        patch(
+            "app.orchestrator.download_media", AsyncMock(return_value=b"bytes")
+        ),
+        patch("app.orchestrator.archive_photo", return_value="path.jpg"),
+        patch("app.orchestrator.identify", AsyncMock(return_value=None)),
+        patch("app.orchestrator.send_text", AsyncMock()) as mock_send,
+    ):
+        item_id = await handle_photo_message(
+            settings.demo_user_phone, "chat1", "https://x/y.jpg"
+        )
+
+    assert item_id is None
+    mock_send.assert_awaited_once_with(
+        "chat1", "Couldn't read that one — try a photo of the front label?"
+    )
+    assert mock_cur.execute.call_count == 2

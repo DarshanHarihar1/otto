@@ -1,3 +1,4 @@
+import asyncio
 import base64
 
 from openai import OpenAI
@@ -32,8 +33,7 @@ _SYSTEM_PROMPT = (
 )
 
 
-async def identify(image_bytes: bytes) -> Identification:
-    b64 = base64.b64encode(image_bytes).decode()
+def _parse_identification(b64: str) -> Identification | None:
     response = _client.responses.parse(
         model="gpt-5.6-sol",
         input=[
@@ -52,3 +52,8 @@ async def identify(image_bytes: bytes) -> Identification:
         text_format=Identification,
     )
     return response.output_parsed
+
+
+async def identify(image_bytes: bytes) -> Identification | None:
+    b64 = base64.b64encode(image_bytes).decode()
+    return await asyncio.to_thread(_parse_identification, b64)
