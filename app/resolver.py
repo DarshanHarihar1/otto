@@ -28,7 +28,7 @@ def _domain_for_brand(identification: Identification, registry: Registry) -> str
 def _brand_matches(vendor: str, brand: str) -> bool:
     vendor = vendor.casefold().strip()
     brand = brand.casefold().strip()
-    return bool(vendor and brand) and (brand in vendor or vendor in brand)
+    return bool(vendor and brand) and brand in vendor
 
 
 async def resolve(identification: Identification, registry: Registry) -> Quote | None:

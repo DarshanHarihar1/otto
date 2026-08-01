@@ -49,7 +49,7 @@ async def test_confident_brand_routes_to_single_store_only():
                     {
                         "handle": "sal-serum",
                         "title": "Salicylic Acid 2% Serum",
-                        "vendor": "Minimalist",
+                        "vendor": "Minimalist India",
                     }
                 ]
             ),
@@ -68,6 +68,34 @@ async def test_confident_brand_routes_to_single_store_only():
     mock_search.assert_awaited_once_with(
         "beminimalist.co", "salicylic acid 2% serum"
     )
+
+
+async def test_confident_brand_rejects_vendor_that_is_brand_prefix():
+    identification = _identification().model_copy(update={"brand": "Aesop"})
+    aesop_registry = Registry(
+        _by_category={"Beauty & Personal Care/Skin Care": ["aesop.com"]}
+    )
+    with (
+        patch(
+            "app.resolver.search_suggest",
+            AsyncMock(
+                return_value=[
+                    {
+                        "handle": "aesop-serum",
+                        "title": "Salicylic Acid Serum",
+                        "vendor": "A",
+                    }
+                ]
+            ),
+        ),
+        patch("app.resolver.match_variant", AsyncMock(return_value=_match())) as mock_match,
+        patch("app.resolver.get_product", AsyncMock()) as mock_get_product,
+    ):
+        quote = await resolve(identification, aesop_registry)
+
+    assert quote is None
+    mock_match.assert_not_awaited()
+    mock_get_product.assert_not_awaited()
 
 
 async def test_confident_brand_rejects_wrong_vendor_candidate():

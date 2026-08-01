@@ -26,3 +26,14 @@ Evidence: `.venv/bin/pytest tests/test_resolver.py tests/test_registry.py -q`
 — 7 passed. Full suite: 42 passed, 5 failed because sandboxed external
 Supabase/OpenAI/Shopify requests could not connect; failures are unrelated to
 the resolver changes.
+
+## High finding remediation
+
+- Narrowed `_brand_matches()` to require the normalized brand to be contained
+  in the normalized vendor; a vendor that is merely a brand prefix no longer
+  passes the hard filter.
+- Added regression coverage proving `brand="Aesop"` with `vendor="A"` returns
+  no quote, while `vendor="Minimalist India"` remains accepted for
+  `brand="Minimalist"`.
+
+Evidence: `.venv/bin/pytest tests/test_resolver.py -q` — 6 passed.
