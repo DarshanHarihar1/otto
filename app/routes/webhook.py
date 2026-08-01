@@ -19,8 +19,11 @@ def _verify_signature(
 ) -> bool:
     if not (msg_id and timestamp and signature):
         return False
-    if abs(time.time() - int(timestamp)) > 300:
-        return False  # replay protection: reject anything older than 5 minutes
+    try:
+        if abs(time.time() - int(timestamp)) > 300:
+            return False  # replay protection: reject anything older than 5 minutes
+    except (ValueError, OverflowError):
+        return False  # malformed timestamp: fail closed, not a 500
 
     secret = settings.linq_webhook_secret.removeprefix("whsec_")
     key = base64.b64decode(secret)

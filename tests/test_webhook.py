@@ -55,6 +55,20 @@ def test_accepts_valid_signature():
     assert resp.json() == {"ok": True}
 
 
+def test_rejects_malformed_timestamp():
+    body = json.dumps({"event": "message.received", "data": {}}).encode()
+    resp = client.post(
+        "/webhook/linq",
+        content=body,
+        headers={
+            "webhook-id": "msg_1",
+            "webhook-timestamp": "not-a-number",
+            "webhook-signature": "v1,bad",
+        },
+    )
+    assert resp.status_code == 401
+
+
 def test_rejects_stale_timestamp():
     body = json.dumps({"event": "message.received", "data": {}}).encode()
     stale_timestamp = str(int(time.time()) - 600)  # 10 minutes old
