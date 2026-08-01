@@ -1,0 +1,51 @@
+Region,Rank,Merchant,Category,Country,Domain,MCP/UCP Endpoint
+INDIA,1,boAt Lifestyle,Computers & Consumer Electronics/Home Audio & Video,India,boat-lifestyle.com,https://boatlifestylein.myshopify.com/api/ucp/mcp
+INDIA,2,Noise,Consumer Electronics/Mobile & Wireless/Mobile & Wireless Accessories,India,gonoise.com,https://mansinoise.myshopify.com/api/ucp/mcp
+INDIA,3,TheDermaCo,Beauty & Personal Care/Skin Care,India,thedermaco.com,https://thedermaco.myshopify.com/api/ucp/mcp
+INDIA,4,ACwO,Computers & Consumer Electronics/Consumer Electronic Accessories,India,acwo.com,https://acwo.myshopify.com/api/ucp/mcp
+INDIA,5,GIVA,Apparel/Jewelry,India,giva.co,https://giva-jewelry.myshopify.com/api/ucp/mcp
+INDIA,6,Libas,Apparel/Clothing,India,libas.in,https://libasdelhi.myshopify.com/api/ucp/mcp
+INDIA,7,Kapiva,Health/Pharmacy,India,kapiva.in,https://kapiva.in/api/ucp
+INDIA,8,Clinikally,Beauty & Personal Care/Skin Care,India,clinikally.com,https://clinikally.myshopify.com/api/ucp/mcp
+INDIA,9,Dot & Key,Beauty & Personal Care/Skin Care,India,dotandkey.com,https://dot-key.myshopify.com/api/ucp/mcp
+INDIA,10,Bombay Shaving Company,Beauty & Personal Care/Shaving & Grooming,India,bombayshavingcompany.com,https://bombay-shaving.myshopify.com/api/ucp/mcp
+INDIA,11,DeoDap,Business & Industrial/Business Management,India,deodap.in,https://a5aec8.myshopify.com/api/ucp/mcp
+INDIA,12,Mamaearth,Beauty & Personal Care/Skin Care,India,mamaearth.in,https://mamaearthprod.myshopify.com/api/ucp/mcp
+INDIA,13,The House of Rare,Apparel/Clothing,India,thehouseofrare.com,https://rarerabbit.myshopify.com/api/ucp/mcp
+INDIA,14,Minimalist,Beauty & Personal Care/Skin Care,India,beminimalist.co,https://minimalistinc.myshopify.com/api/ucp/mcp
+INDIA,15,Dr. Sheth's,Beauty & Personal Care/Skin Care,India,drsheths.com,https://dr-sheths.myshopify.com/api/ucp/mcp
+INDIA,16,The Sleep Company,Home & Garden/Home Furniture,India,thesleepcompany.in,https://thesleepcompanystore.myshopify.com/api/ucp/mcp
+INDIA,17,Headphone Zone,Computers & Consumer Electronics/Home Audio & Video,India,headphonezone.in,https://headphone-zone.myshopify.com/api/ucp/mcp
+INDIA,18,Aqualogica™,Beauty & Personal Care/Skin Care,India,aqualogica.in,https://aqualogicaprod.myshopify.com/api/ucp/mcp
+INDIA,19,Pilgrim,Beauty & Personal Care/Skin Care,India,discoverpilgrim.com,https://discoverpilgrim.myshopify.com/api/ucp/mcp
+INDIA,20,Nobero,Apparel/Clothing,India,nobero.com,https://my-dream-store-final.myshopify.com/api/ucp/mcp
+INDIA,21,Kushal's,Apparel/Jewelry,India,kushals.com,https://kushalsonline-com.myshopify.com/api/ucp/mcp
+INDIA,22,XYXX Apparels,Apparel/Clothing,India,xyxxcrew.com,https://xyxx-apparels.myshopify.com/api/ucp/mcp
+INDIA,23,Littlebox India,Apparel/Clothing,India,littleboxindia.com,https://lbindia.myshopify.com/api/ucp/mcp
+INDIA,24,Traya Health,Beauty & Personal Care/Hair Care,India,traya.health,https://tatvahealth.myshopify.com/api/ucp/mcp
+INDIA,25,Neeman’s,Apparel/Footwear,India,neemans.com,https://babymarketstore.myshopify.com/api/ucp/mcp
+INDIA,26,Palmonas,Apparel/Jewelry,India,palmonas.com,https://palmonas.myshopify.com/api/ucp/mcp
+INDIA,27,MCaffeine,Beauty & Personal Care/Skin Care,India,mcaffeine.com,https://iamcaffeine.myshopify.com/api/ucp/mcp
+INDIA,28,Peachmode,Apparel/Clothing,India,peachmode.com,https://peachm.myshopify.com/api/ucp/mcp
+INDIA,29,Zanducare,Health/Pharmacy,India,zanducare.com,https://zanducare.myshopify.com/api/ucp/mcp
+INDIA,30,Kalkifashion,Apparel/Clothing,India,kalkifashion.com,https://us-kalkifashion.myshopify.com/api/ucp/mcp
+INDIA,31,Portronics,Retailers & General Merchandise/Shopping Portals & Search Engines,India,portronics.com,https://portronicsindia.myshopify.com/api/ucp/mcp
+INDIA,32,Oswaal Books,Jobs & Education/Standardized & Admissions Tests,India,oswaalbooks.com,https://oswaalbooks.myshopify.com/api/ucp/mcp
+INDIA,33,OZiva,Health/Pharmacy,India,oziva.in,https://oziva.myshopify.com/api/ucp/mcp
+INDIA,34,Mokobara,Travel & Tourism/Luggage & Travel Accessories,India,mokobara.com,https://mokobara.myshopify.com/api/ucp/mcp
+INDIA,35,Innovist,Beauty & Personal Care/Skin Care,India,innovist.com,https://bareanatomy.myshopify.com/api/ucp/mcp
+INDIA,36,Campus Shoes,Apparel/Footwear,India,campusshoes.com,https://campusshoess.myshopify.com/api/ucp/mcp
+INDIA,37,Speedo,Sports & Fitness/Sports & Fitness Apparel,India,speedo.com,https://speedo-main.myshopify.com/api/ucp/mcp
+INDIA,38,Durex India,Health/Health Conditions & Concerns,India,durexindia.com,https://durex-in.myshopify.com/api/ucp/mcp
+INDIA,39,Himalaya Wellness,Health/Pharmacy,India,himalayawellness.in,https://himalaya-wellness-india.myshopify.com/api/ucp/mcp
+INDIA,40,Adilqadri,Retailers & General Merchandise/Marketplace,India,adilqadri.com,https://adilqadrihashmi.myshopify.com/api/ucp/mcp
+INDIA,41,Plum Goodness,Beauty & Personal Care/Skin Care,India,plumgoodness.com,https://plumgoodness-2.myshopify.com/api/ucp/mcp
+INDIA,42,W for Woman,Apparel/Clothing,India,wforwoman.com,https://shopforw.myshopify.com/api/ucp/mcp
+INDIA,43,Milton,Business & Industrial/Food Service Industry,India,milton.in,https://milton-india-store.myshopify.com/api/ucp/mcp
+INDIA,44,iCruze Lifestyle,Computers & Consumer Electronics/Consumer Electronic Accessories,India,icruze-digital.com,https://www-icruze-in.myshopify.com/api/ucp/mcp
+INDIA,45,Supertails,Hobbies & Leisure/Pets & Animals,India,supertails.com,https://supertail.myshopify.com/api/ucp/mcp
+INDIA,46,Salty,Apparel/Jewelry,India,salty.co.in,https://saltyjewels.myshopify.com/api/ucp/mcp
+INDIA,47,Bacca Bucci,Apparel/Footwear,India,baccabucci.com,https://baccabucci.myshopify.com/api/ucp/mcp
+INDIA,48,Aachho,Apparel/Clothing,India,aachho.com,https://www-aachho-com.myshopify.com/api/ucp/mcp
+INDIA,49,Renee Cosmetics,Beauty & Personal Care/Make-Up & Cosmetics,India,reneecosmetics.in,https://reneeofficial.myshopify.com/api/ucp/mcp
+INDIA,50,Deconstruct,Beauty & Personal Care/Skin Care,India,thedeconstruct.in,https://thedeconstruct.myshopify.com/api/ucp/mcp
