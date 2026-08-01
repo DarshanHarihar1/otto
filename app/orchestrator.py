@@ -6,6 +6,7 @@ import uuid
 from app.db import get_conn
 from app.registry import load_registry
 from app.media import archive_photo, download_media
+from app.prava import create_session
 from app.reply_composer import compose_and_send, send_typing
 from app.resolver import resolve
 from app.routes.webhook import send_text
@@ -132,3 +133,52 @@ async def handle_photo_message(
         except Exception:
             logger.error("Could not send photo-pipeline failure response")
         return None
+
+
+async def handle_text_message(user_phone: str, chat_id: str, text: str) -> None:
+    text_lower = text.strip().lower()
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            """SELECT i.id, i.merchant, i.shopify_variant_id, i.last_price_paise, i.brand, i.product
+               FROM items i JOIN users u ON u.id = i.user_id
+               WHERE u.phone = %s AND i.state = 'QUOTED'
+               ORDER BY i.updated_at DESC LIMIT 1""",
+            (user_phone,),
+        )
+        row = cur.fetchone()
+
+    if row is None or text_lower not in ("yes", "buy", "buy it", "confirm"):
+        return
+
+    item_id, merchant, variant_id, price_paise, brand, product = row
+    session = await create_session(
+        amount_paise=price_paise,
+        merchant=merchant,
+        line_items=[
+            {
+                "name": f"{brand} {product}",
+                "shopify_variant_id": variant_id,
+                "price": price_paise / 100,
+            }
+        ],
+    )
+
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            "UPDATE items SET state = 'AWAITING_APPROVAL', updated_at = now() WHERE id = %s",
+            (item_id,),
+        )
+        cur.execute(
+            "INSERT INTO purchases (item_id, prava_session_id, amount_paise, status) VALUES (%s, %s, %s, 'AWAITING_APPROVAL')",
+            (item_id, session.session_id, price_paise),
+        )
+        cur.execute(
+            "INSERT INTO events (item_id, kind, payload) VALUES (%s, 'chat_ref', %s)",
+            (item_id, json.dumps({"chat_id": chat_id})),
+        )
+
+    await send_text(
+        chat_id,
+        f"₹{price_paise / 100:.0f} for {brand} {product}. Sending the approval link now.",
+    )
+    await send_text(chat_id, session.approval_url)

@@ -409,3 +409,59 @@ async def test_identified_item_without_quote_reaches_unbuyable():
     mock_send.assert_awaited_once_with(
         "chat1", "Couldn't find Minimalist Serum anywhere I can buy from."
     )
+
+
+async def test_handle_text_message_creates_session_and_sends_price_then_approval_link():
+    from app.orchestrator import handle_text_message
+    from app.prava import Session
+
+    mock_get_conn, mock_cur = _mock_db()
+    mock_cur.fetchone.return_value = (
+        "item-uuid-1",
+        "beminimalist.co",
+        "variant-123",
+        54900,
+        "Minimalist",
+        "Salicylic Acid Serum",
+    )
+    session = Session(
+        session_id="prava-session-1", approval_url="https://prava.example/approve"
+    )
+    with (
+        patch("app.orchestrator.get_conn", mock_get_conn),
+        patch(
+            "app.orchestrator.create_session", AsyncMock(return_value=session)
+        ) as mock_create_session,
+        patch("app.orchestrator.send_text", AsyncMock()) as mock_send,
+    ):
+        await handle_text_message(settings.demo_user_phone, "chat1", "buy it")
+
+    mock_create_session.assert_awaited_once_with(
+        amount_paise=54900,
+        merchant="beminimalist.co",
+        line_items=[
+            {
+                "name": "Minimalist Salicylic Acid Serum",
+                "shopify_variant_id": "variant-123",
+                "price": 549.0,
+            }
+        ],
+    )
+    assert mock_get_conn.call_count == 2
+    calls = mock_cur.execute.call_args_list
+    assert "state = 'QUOTED'" in calls[0][0][0]
+    assert calls[0][0][1] == (settings.demo_user_phone,)
+    assert "state = 'AWAITING_APPROVAL'" in calls[1][0][0]
+    assert calls[1][0][1] == ("item-uuid-1",)
+    assert "INSERT INTO purchases" in calls[2][0][0]
+    assert calls[2][0][1] == ("item-uuid-1", "prava-session-1", 54900)
+    assert "INSERT INTO events" in calls[3][0][0]
+    assert json.loads(calls[3][0][1][1]) == {"chat_id": "chat1"}
+    assert mock_send.await_args_list[0].args == (
+        "chat1",
+        "₹549 for Minimalist Salicylic Acid Serum. Sending the approval link now.",
+    )
+    assert mock_send.await_args_list[1].args == (
+        "chat1",
+        "https://prava.example/approve",
+    )

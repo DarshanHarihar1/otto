@@ -83,7 +83,9 @@ def test_message_received_dispatches_through_route():
     # directly) so it catches that class of bug again if reintroduced.
     body = json.dumps(REAL_MESSAGE_RECEIVED_PAYLOAD).encode()
     timestamp = str(int(time.time()))
-    with patch("app.routes.webhook.send_text", AsyncMock()) as mock_send:
+    with patch(
+        "app.orchestrator.handle_text_message", AsyncMock()
+    ) as mock_handle_text:
         resp = client.post(
             "/webhook/linq",
             content=body,
@@ -94,8 +96,10 @@ def test_message_received_dispatches_through_route():
             },
         )
         assert resp.status_code == 200
-        mock_send.assert_awaited_once_with(
-            "6e4a83dc-ffba-4761-924c-5292fd8d84e3", "got it: hello otto"
+        mock_handle_text.assert_awaited_once_with(
+            "+919900475117",
+            "6e4a83dc-ffba-4761-924c-5292fd8d84e3",
+            "hello otto",
         )
 
 
@@ -184,10 +188,14 @@ def test_extract_media_url_ignores_value_only_parts():
 
 
 async def test_handle_message_received_parses_real_payload_shape():
-    with patch("app.routes.webhook.send_text", AsyncMock()) as mock_send:
+    with patch(
+        "app.orchestrator.handle_text_message", AsyncMock()
+    ) as mock_handle_text:
         await _handle_message_received(REAL_MESSAGE_RECEIVED_PAYLOAD)
-    mock_send.assert_awaited_once_with(
-        "6e4a83dc-ffba-4761-924c-5292fd8d84e3", "got it: hello otto"
+    mock_handle_text.assert_awaited_once_with(
+        "+919900475117",
+        "6e4a83dc-ffba-4761-924c-5292fd8d84e3",
+        "hello otto",
     )
 
 

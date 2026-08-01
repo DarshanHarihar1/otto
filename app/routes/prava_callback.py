@@ -5,6 +5,7 @@ from fastapi.responses import HTMLResponse
 
 from app.db import get_conn
 from app.prava import PaymentResult, get_payment_result, report_status
+from app.routes.webhook import send_text
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -26,7 +27,7 @@ async def _finalize_payment(session_id: str) -> None:
         return
     if row is None:
         return
-    item_id, _state, _phone, _brand, _product = row
+    item_id, _state, _phone, brand, product = row
 
     result: PaymentResult | None = None
     try:
@@ -57,6 +58,19 @@ async def _finalize_payment(session_id: str) -> None:
                 "UPDATE items SET state = 'ORDERED', updated_at = now() WHERE id = %s",
                 (item_id,),
             )
+
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT payload->>'chat_id' FROM events WHERE item_id = %s AND kind = 'chat_ref' ORDER BY id DESC LIMIT 1",
+            (item_id,),
+        )
+        chat_row = cur.fetchone()
+    chat_id = chat_row[0] if chat_row else None
+
+    if chat_id and new_state == "PAID":
+        await send_text(chat_id, f"Ordered ✅ · {brand} {product} · saved to your shelf")
+    elif chat_id:
+        await send_text(chat_id, "Payment didn't go through — the session was declined.")
 
 
 @router.get("/prava/callback")

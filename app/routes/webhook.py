@@ -90,7 +90,10 @@ async def _handle_message_received(payload: dict) -> None:
         await handle_photo_message(phone, chat_id, media_url)
     else:
         text = _extract_text(parts)
-        await send_text(chat_id, f"got it: {text}" if text else "got your message")
+        if text:
+            from app.orchestrator import handle_text_message
+
+            await handle_text_message(phone, chat_id, text)
 
 
 @router.post("/webhook/linq")
