@@ -36,7 +36,7 @@ async def test_finalize_payment_marks_ordered_and_notifies_saved_chat():
             return_value=mock_conn_cm,
         ),
         patch(
-            "app.routes.prava_callback.get_payment_result",
+            "app.routes.prava_callback.poll_payment_result",
             AsyncMock(
                 return_value=PaymentResult(
                     status="awaiting_result",
@@ -86,7 +86,7 @@ async def test_finalize_payment_fails_without_approving_non_ready_result():
             return_value=mock_conn_cm,
         ),
         patch(
-            "app.routes.prava_callback.get_payment_result",
+            "app.routes.prava_callback.poll_payment_result",
             AsyncMock(
                 return_value=PaymentResult(
                     status="failed",

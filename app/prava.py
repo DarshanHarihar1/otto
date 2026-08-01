@@ -1,4 +1,6 @@
+import asyncio
 import re
+import time
 from decimal import Decimal
 
 import httpx
@@ -7,6 +9,8 @@ from pydantic import BaseModel
 from app.config import settings
 
 _TIMEOUT_SECONDS = 15
+_POLL_INTERVAL_SECONDS = 3
+_POLL_ATTEMPTS = 30  # ~90s — Prava SDK skill guidance
 
 
 class Session(BaseModel):
@@ -89,6 +93,7 @@ async def get_payment_result(session_id: str) -> PaymentResult:
         response = await client.get(
             f"{settings.prava_base_url}/v1/sessions/{session_id}/payment-result",
             headers=_headers(),
+            params={"_t": str(int(time.time() * 1000))},
         )
         response.raise_for_status()
         data = response.json()
@@ -114,6 +119,26 @@ async def get_payment_result(session_id: str) -> PaymentResult:
         ),
         txn_ref_id=line_item.get("txn_ref_id"),
     )
+
+
+async def poll_payment_result(session_id: str) -> PaymentResult:
+    """Poll until credentials are ready, failed, or attempts exhausted.
+
+    Per Prava SDK skill: poll ~every 3s up to ~90s. Ready when status is
+    awaiting_result/completed with token+cvv+txn_ref_id.
+    """
+    last: PaymentResult | None = None
+    for attempt in range(_POLL_ATTEMPTS):
+        last = await get_payment_result(session_id)
+        if last.status == "failed":
+            return last
+        if last.status in {"awaiting_result", "completed"} and last.credentials_ready:
+            return last
+        if attempt + 1 < _POLL_ATTEMPTS:
+            await asyncio.sleep(_POLL_INTERVAL_SECONDS)
+    if last is None:
+        raise TimeoutError(f"No payment result for session {session_id}")
+    return last
 
 
 async def report_status(session_id: str, status: str, txn_ref_id: str) -> None:

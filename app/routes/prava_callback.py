@@ -4,7 +4,7 @@ from fastapi import APIRouter, BackgroundTasks
 from fastapi.responses import HTMLResponse
 
 from app.db import get_conn
-from app.prava import PaymentResult, get_payment_result, report_status
+from app.prava import PaymentResult, poll_payment_result, report_status
 from app.routes.webhook import send_text
 
 router = APIRouter()
@@ -31,8 +31,9 @@ async def _finalize_payment(session_id: str) -> None:
 
     result: PaymentResult | None = None
     try:
-        result = await get_payment_result(session_id)
-        if result.status != "awaiting_result" or not result.credentials_ready:
+        # Prava skill: poll until credentials exist — callback often fires early.
+        result = await poll_payment_result(session_id)
+        if result.status == "failed" or not result.credentials_ready:
             raise ValueError(
                 f"Payment result is not ready (status={result.status!r})"
             )
@@ -40,6 +41,7 @@ async def _finalize_payment(session_id: str) -> None:
         await report_status(session_id, "APPROVED", result.txn_ref_id)
         new_state = "PAID"
     except Exception:
+        logger.exception("Could not finalize Prava session %s", session_id)
         if result is not None and result.txn_ref_id:
             try:
                 await report_status(session_id, "DECLINED", result.txn_ref_id)
