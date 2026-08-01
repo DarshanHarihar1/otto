@@ -37,16 +37,43 @@ def _brand_matches(vendor: str, brand: str) -> bool:
     return bool(vendor and brand) and brand in vendor
 
 
-async def _search_domain(domain: str, query: str) -> tuple[str, list[dict]]:
-    try:
-        return domain, await search_suggest(domain, query)
-    except Exception:
-        return domain, []
+def _search_queries(identification: Identification) -> list[str]:
+    """Prefer individual vision search terms over concatenating them.
+
+    Shopify suggest often returns nothing for a glued multi-term query.
+    """
+    queries: list[str] = []
+    for term in identification.search_terms or []:
+        term = (term or "").strip()
+        if term and term not in queries:
+            queries.append(term)
+    product = (identification.product or "").strip()
+    if product and product not in queries:
+        queries.append(product)
+    brand = (identification.brand or "").strip()
+    if brand and product:
+        branded = f"{brand} {product}"
+        if branded not in queries:
+            queries.append(branded)
+    return queries
+
+
+async def _search_domain(domain: str, queries: list[str]) -> tuple[str, list[dict]]:
+    for query in queries:
+        try:
+            results = await search_suggest(domain, query)
+        except Exception:
+            results = []
+        if results:
+            return domain, results
+    return domain, []
 
 
 async def resolve(identification: Identification, registry: Registry) -> Quote | None:
     """Find a purchase quote from Shopify's current product data."""
-    query = " ".join(identification.search_terms) or identification.product or ""
+    queries = _search_queries(identification)
+    if not queries:
+        return None
 
     if identification.brand and identification.confidence >= BRAND_CONFIDENCE_FLOOR:
         brand_domain = _domain_for_brand(identification, registry)
@@ -61,7 +88,7 @@ async def resolve(identification: Identification, registry: Registry) -> Quote |
 
     all_candidates: list[tuple[str, dict]] = []
     search_results = await asyncio.gather(
-        *(_search_domain(domain, query) for domain in domains)
+        *(_search_domain(domain, queries) for domain in domains)
     )
     for domain, results in search_results:
         all_candidates.extend((domain, result) for result in results)

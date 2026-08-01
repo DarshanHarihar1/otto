@@ -302,3 +302,51 @@ async def test_no_quote_when_variant_match_is_missing():
 
     assert quote is None
     mock_get_product.assert_not_awaited()
+
+
+async def test_tries_search_terms_individually_instead_of_concatenating():
+    identification = _identification().model_copy(
+        update={
+            "search_terms": [
+                "salicylic acid 2% serum",
+                "extra noise term that would break a joined query",
+            ]
+        }
+    )
+
+    async def search(domain: str, query: str) -> list[dict]:
+        if query == "salicylic acid 2% serum":
+            return [
+                {
+                    "handle": "sal-serum",
+                    "title": "Salicylic Acid 2% Serum",
+                    "vendor": "Minimalist",
+                }
+            ]
+        return []
+
+    with (
+        patch("app.resolver.search_suggest", side_effect=search) as mock_search,
+        patch("app.resolver.match_variant", AsyncMock(return_value=_match())),
+        patch(
+            "app.resolver.get_product",
+            AsyncMock(return_value={"variants": [{"id": 123, "price": "549.00"}]}),
+        ),
+    ):
+        quote = await resolve(identification, REGISTRY)
+
+    assert quote is not None
+    assert quote.price_paise == 54900
+    assert mock_search.await_args_list[0].args == (
+        "beminimalist.co",
+        "salicylic acid 2% serum",
+    )
+    assert all(
+        "extra noise" not in call.args[1] or call.args[1] == "extra noise term that would break a joined query"
+        for call in mock_search.await_args_list
+    )
+    # Must not search the concatenated blob of both terms.
+    assert not any(
+        "salicylic acid 2% serum extra noise" in call.args[1]
+        for call in mock_search.await_args_list
+    )
