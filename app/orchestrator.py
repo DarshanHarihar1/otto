@@ -1,20 +1,48 @@
 import asyncio
+import csv
 import json
 import logging
 import uuid
+from pathlib import Path
 
 from app.db import get_conn
 from app.media import archive_photo, download_media
+from app.reply_composer import compose_and_send
 from app.routes.webhook import send_text
+from app.state_machine import ItemState, gate_identification
 from app.vision import identify
 
 logger = logging.getLogger(__name__)
+
+_FALLBACK_KNOWN_CATEGORIES = frozenset(
+    {
+        "Beauty & Personal Care/Skin Care",
+        "Health/Pharmacy",
+        "Health/Health Conditions & Concerns",
+    }
+)
+
+
+def _load_known_categories() -> frozenset[str]:
+    merchants_path = Path(__file__).resolve().parent.parent / "data" / "merchants.csv"
+    try:
+        with merchants_path.open(newline="", encoding="utf-8") as merchants_file:
+            categories = frozenset(
+                row["category"]
+                for row in csv.DictReader(merchants_file)
+                if row.get("category") and row.get("ok", "").strip().lower() == "true"
+            )
+    except FileNotFoundError:
+        return _FALLBACK_KNOWN_CATEGORIES
+    return categories or _FALLBACK_KNOWN_CATEGORIES
+
+
+_KNOWN_CATEGORIES = _load_known_categories()
 
 
 async def handle_photo_message(
     user_phone: str, chat_id: str, media_url: str
 ) -> str | None:
-    item_id = str(uuid.uuid4())
     try:
         with get_conn() as conn, conn.cursor() as cur:
             cur.execute("SELECT id FROM users WHERE phone = %s", (user_phone,))
@@ -23,22 +51,36 @@ async def handle_photo_message(
                 raise ValueError(f"No user found for phone {user_phone!r}")
             user_id = row[0]
             cur.execute(
-                "INSERT INTO items (id, user_id, state) VALUES (%s, %s, 'IDENTIFYING')",
-                (item_id, user_id),
+                """SELECT id FROM items
+                   WHERE user_id = %s AND state = 'NEEDS_ANGLE'
+                     AND updated_at > now() - interval '10 minutes'
+                   ORDER BY updated_at DESC LIMIT 1""",
+                (user_id,),
             )
+            open_item = cur.fetchone()
+            if open_item:
+                item_id = open_item[0]
+            else:
+                item_id = str(uuid.uuid4())
+                cur.execute(
+                    "INSERT INTO items (id, user_id, state) VALUES (%s, %s, 'IDENTIFYING')",
+                    (item_id, user_id),
+                )
 
         image_bytes = await download_media(media_url)
         storage_path = await asyncio.to_thread(archive_photo, item_id, image_bytes)
         result = await identify(image_bytes)
         if result is None:
             raise ValueError("Vision identification returned no parsed result")
+        state = gate_identification(result, _KNOWN_CATEGORIES)
 
         with get_conn() as conn, conn.cursor() as cur:
             cur.execute(
                 """
                 UPDATE items
                 SET brand = %s, product = %s, variant = %s, category = %s,
-                    confidence = %s, photo_storage_path = %s, updated_at = now()
+                    confidence = %s, photo_storage_path = %s, state = %s,
+                    updated_at = now()
                 WHERE id = %s
                 """,
                 (
@@ -48,6 +90,7 @@ async def handle_photo_message(
                     result.category,
                     result.confidence,
                     storage_path,
+                    state.value,
                     item_id,
                 ),
             )
@@ -56,11 +99,7 @@ async def handle_photo_message(
                 (item_id, json.dumps(result.model_dump())),
             )
 
-        await send_text(
-            chat_id,
-            f"Got it — {result.brand or 'unknown brand'} {result.product or ''}. "
-            f"({result.reasoning})",
-        )
+        await compose_and_send(chat_id, state, result)
         return item_id
     except Exception:
         logger.exception("Photo message pipeline failed")
