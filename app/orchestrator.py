@@ -1,49 +1,30 @@
 import asyncio
-import csv
 import json
 import logging
 import uuid
-from pathlib import Path
 
+from app.categories import load_known_categories
 from app.db import get_conn
 from app.media import archive_photo, download_media
-from app.reply_composer import compose_and_send
+from app.reply_composer import compose_and_send, send_typing
 from app.routes.webhook import send_text
 from app.state_machine import ItemState, gate_identification
 from app.vision import identify
 
 logger = logging.getLogger(__name__)
 
-_FALLBACK_KNOWN_CATEGORIES = frozenset(
-    {
-        "Beauty & Personal Care/Skin Care",
-        "Health/Pharmacy",
-        "Health/Health Conditions & Concerns",
-    }
-)
-
-
-def _load_known_categories() -> frozenset[str]:
-    merchants_path = Path(__file__).resolve().parent.parent / "data" / "merchants.csv"
-    try:
-        with merchants_path.open(newline="", encoding="utf-8") as merchants_file:
-            categories = frozenset(
-                row["category"]
-                for row in csv.DictReader(merchants_file)
-                if row.get("category") and row.get("ok", "").strip().lower() == "true"
-            )
-    except FileNotFoundError:
-        return _FALLBACK_KNOWN_CATEGORIES
-    return categories or _FALLBACK_KNOWN_CATEGORIES
-
-
-_KNOWN_CATEGORIES = _load_known_categories()
+_KNOWN_CATEGORIES = load_known_categories()
 
 
 async def handle_photo_message(
     user_phone: str, chat_id: str, media_url: str
 ) -> str | None:
     try:
+        try:
+            await send_typing(chat_id, True)
+        except Exception:
+            logger.exception("Could not start typing indicator for chat %s", chat_id)
+
         with get_conn() as conn, conn.cursor() as cur:
             cur.execute("SELECT id FROM users WHERE phone = %s", (user_phone,))
             row = cur.fetchone()
@@ -69,10 +50,16 @@ async def handle_photo_message(
 
         image_bytes = await download_media(media_url)
         storage_path = await asyncio.to_thread(archive_photo, item_id, image_bytes)
-        result = await identify(image_bytes)
+        result = await identify(image_bytes, _KNOWN_CATEGORIES)
         if result is None:
             raise ValueError("Vision identification returned no parsed result")
         state = gate_identification(result, _KNOWN_CATEGORIES)
+        logger.info(
+            "Identification gate chose state=%s confidence=%s category=%r",
+            state.value,
+            result.confidence,
+            result.category,
+        )
 
         with get_conn() as conn, conn.cursor() as cur:
             cur.execute(
@@ -99,6 +86,10 @@ async def handle_photo_message(
                 (item_id, json.dumps(result.model_dump())),
             )
 
+        try:
+            await send_typing(chat_id, False)
+        except Exception:
+            logger.exception("Could not stop typing indicator for chat %s", chat_id)
         await compose_and_send(chat_id, state, result)
         return item_id
     except Exception:

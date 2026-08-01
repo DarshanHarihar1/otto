@@ -1,9 +1,11 @@
 import asyncio
 import base64
+from collections.abc import Collection
 
 from openai import OpenAI
 from pydantic import BaseModel
 
+from app.categories import load_known_categories
 from app.config import settings
 
 _client = OpenAI(api_key=settings.openai_api_key)
@@ -33,11 +35,25 @@ _SYSTEM_PROMPT = (
 )
 
 
-def _parse_identification(b64: str) -> Identification | None:
+def _build_system_prompt(known_categories: Collection[str]) -> str:
+    registry_categories = "\n".join(f"- {category}" for category in sorted(known_categories))
+    return (
+        f"{_SYSTEM_PROMPT}\n\n"
+        "For `category`, choose exactly one string from this merchant registry "
+        "when the product maps to one of them. Do not invent, reword, or "
+        "broaden categories. If no registry category fits or the category "
+        "cannot be determined confidently, otherwise set category to null.\n"
+        f"Merchant registry categories:\n{registry_categories}"
+    )
+
+
+def _parse_identification(
+    b64: str, known_categories: Collection[str]
+) -> Identification | None:
     response = _client.responses.parse(
         model="gpt-5.6-sol",
         input=[
-            {"role": "system", "content": _SYSTEM_PROMPT},
+            {"role": "system", "content": _build_system_prompt(known_categories)},
             {
                 "role": "user",
                 "content": [
@@ -54,6 +70,10 @@ def _parse_identification(b64: str) -> Identification | None:
     return response.output_parsed
 
 
-async def identify(image_bytes: bytes) -> Identification | None:
+async def identify(
+    image_bytes: bytes, known_categories: Collection[str] | None = None
+) -> Identification | None:
     b64 = base64.b64encode(image_bytes).decode()
-    return await asyncio.to_thread(_parse_identification, b64)
+    return await asyncio.to_thread(
+        _parse_identification, b64, known_categories or load_known_categories()
+    )

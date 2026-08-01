@@ -59,7 +59,8 @@ async def test_handle_photo_message_creates_and_updates_item():
     assert mock_get_conn.call_count == 2
     mock_download.assert_awaited_once_with("https://x/y.jpg")
     mock_archive.assert_called_once_with(item_id, b"bytes")
-    mock_identify.assert_awaited_once_with(b"bytes")
+    assert mock_identify.await_args.args[0] == b"bytes"
+    assert "Beauty & Personal Care/Skin Care" in mock_identify.await_args.args[1]
     mock_compose.assert_awaited_once_with("chat1", ItemState.IDENTIFIED, fake_result)
 
     calls = mock_cur.execute.call_args_list
@@ -209,7 +210,8 @@ async def test_handle_photo_message_reuses_open_needs_angle_item():
     assert mock_get_conn.call_count == 2
     mock_download.assert_awaited_once_with("https://x/y.jpg")
     mock_archive.assert_called_once_with(existing_item_id, b"bytes")
-    mock_identify.assert_awaited_once_with(b"bytes")
+    assert mock_identify.await_args.args[0] == b"bytes"
+    assert "Beauty & Personal Care/Skin Care" in mock_identify.await_args.args[1]
     mock_compose.assert_awaited_once_with("chat1", ItemState.IDENTIFIED, fake_result)
 
     calls = mock_cur.execute.call_args_list
@@ -253,3 +255,65 @@ async def test_unknown_category_reaches_unbuyable_state():
         await handle_photo_message("+910000000000", "chat1", "https://x/y.jpg")
 
     mock_compose.assert_awaited_once_with("chat1", ItemState.UNBUYABLE, fake_result)
+
+
+async def test_typing_starts_before_download_and_stops_before_composing():
+    from app.orchestrator import handle_photo_message
+
+    fake_result = Identification(
+        object_type="bottle", brand="Minimalist", product="Serum", variant="30ml",
+        category="Beauty & Personal Care/Skin Care", search_terms=["serum"],
+        confidence=0.95, reasoning="clear", missing_info=None, suggested_photo=None,
+    )
+    mock_get_conn, mock_cur = _mock_db()
+    mock_cur.fetchone.side_effect = [("user-uuid-1",), None]
+    calls = []
+
+    async def record_typing(_chat_id, on):
+        calls.append(("typing", on))
+
+    async def record_download(_media_url):
+        calls.append(("download", None))
+        return b"bytes"
+
+    async def record_compose(*_args):
+        calls.append(("compose", None))
+
+    with (
+        patch("app.orchestrator.get_conn", mock_get_conn),
+        patch("app.orchestrator.send_typing", side_effect=record_typing),
+        patch("app.orchestrator.download_media", side_effect=record_download),
+        patch("app.orchestrator.archive_photo", return_value="path.jpg"),
+        patch("app.orchestrator.identify", AsyncMock(return_value=fake_result)),
+        patch("app.orchestrator.compose_and_send", side_effect=record_compose),
+    ):
+        await handle_photo_message(settings.demo_user_phone, "chat1", "https://x/y.jpg")
+
+    assert calls.index(("typing", True)) < calls.index(("download", None))
+    assert calls.index(("typing", False)) < calls.index(("compose", None))
+
+
+async def test_typing_failure_does_not_prevent_successful_reply():
+    from app.orchestrator import handle_photo_message
+
+    fake_result = Identification(
+        object_type="bottle", brand="Minimalist", product="Serum", variant="30ml",
+        category="Beauty & Personal Care/Skin Care", search_terms=["serum"],
+        confidence=0.95, reasoning="clear", missing_info=None, suggested_photo=None,
+    )
+    mock_get_conn, mock_cur = _mock_db()
+    mock_cur.fetchone.side_effect = [("user-uuid-1",), None]
+    with (
+        patch("app.orchestrator.get_conn", mock_get_conn),
+        patch("app.orchestrator.send_typing", AsyncMock(side_effect=RuntimeError("Linq down"))),
+        patch("app.orchestrator.download_media", AsyncMock(return_value=b"bytes")),
+        patch("app.orchestrator.archive_photo", return_value="path.jpg"),
+        patch("app.orchestrator.identify", AsyncMock(return_value=fake_result)),
+        patch("app.orchestrator.compose_and_send", AsyncMock()) as mock_compose,
+    ):
+        item_id = await handle_photo_message(
+            settings.demo_user_phone, "chat1", "https://x/y.jpg"
+        )
+
+    assert item_id is not None
+    mock_compose.assert_awaited_once_with("chat1", ItemState.IDENTIFIED, fake_result)

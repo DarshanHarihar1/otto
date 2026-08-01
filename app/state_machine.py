@@ -26,6 +26,8 @@ def gate_identification(
 ) -> ItemState:
     if result.confidence < settings.confidence_threshold:
         return ItemState.NEEDS_ANGLE
+    if result.category is None:
+        return ItemState.NEEDS_ANGLE
     if result.category not in category_registry:
         return ItemState.UNBUYABLE
     return ItemState.IDENTIFIED
