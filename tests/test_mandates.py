@@ -50,13 +50,21 @@ async def test_get_mandate_id_for_session_lists_standing_mandates():
             json={
                 "mandates": [
                     {
+                        "id": "mdt_one_time",
+                        "status": "active",
+                        "recurringFrequency": "one_time",
+                        "createdAt": "2026-08-02T04:00:00Z",
+                    },
+                    {
                         "id": "mdt_old",
                         "status": "active",
+                        "recurringFrequency": "monthly",
                         "createdAt": "2026-07-01T00:00:00Z",
                     },
                     {
                         "id": "mdt_new",
                         "status": "active",
+                        "recurringFrequency": "monthly",
                         "createdAt": "2026-08-02T00:00:00Z",
                     },
                 ]

@@ -140,24 +140,32 @@ async def create_session_with_mandate(
 async def get_mandate_id_for_session(session_id: str) -> str | None:
     """Resolve standing mandate id after a mandate checkout session.
 
-    Docs do not put mandate_id on payment-result; list standing mandates for
-    this customer and prefer the newest active one.
+    Docs suggest standing_only=true, but sandbox returns [] for that filter while
+    the active monthly listed mandate appears when listing all mandates. Prefer
+    active non-one_time mandates for this customer.
     """
     del session_id  # kept for call-site stability; list is customer-scoped
     async with httpx.AsyncClient(timeout=_TIMEOUT_SECONDS) as client:
         response = await client.get(
             f"{settings.prava_base_url}/v1/mandates",
             headers=_headers(),
-            params={"customer_id": _customer_id(), "standing_only": "true"},
+            params={"customer_id": _customer_id()},
         )
         response.raise_for_status()
         data = response.json()
     mandates = data.get("mandates") or []
-    active = [m for m in mandates if m.get("status") == "active"]
-    candidates = active or mandates
+    standing = [
+        m
+        for m in mandates
+        if m.get("status") == "active"
+        and m.get("recurringFrequency") not in {None, "one_time"}
+    ]
+    candidates = standing or [m for m in mandates if m.get("status") == "active"]
     if not candidates:
         return None
-    candidates.sort(key=lambda m: m.get("createdAt") or m.get("updatedAt") or "", reverse=True)
+    candidates.sort(
+        key=lambda m: m.get("createdAt") or m.get("updatedAt") or "", reverse=True
+    )
     mandate_id = candidates[0].get("id")
     return mandate_id if isinstance(mandate_id, str) else None
 
