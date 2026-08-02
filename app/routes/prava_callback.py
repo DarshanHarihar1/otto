@@ -15,7 +15,7 @@ async def _finalize_payment(session_id: str) -> None:
     try:
         with get_conn() as conn, conn.cursor() as cur:
             cur.execute(
-                """SELECT p.item_id, i.state, u.phone, i.brand, i.product
+                """SELECT p.item_id, i.state, u.phone, i.brand, i.product, p.status
                    FROM purchases p JOIN items i ON i.id = p.item_id
                    JOIN users u ON u.id = i.user_id
                    WHERE p.prava_session_id = %s""",
@@ -27,7 +27,11 @@ async def _finalize_payment(session_id: str) -> None:
         return
     if row is None:
         return
-    item_id, _state, _phone, brand, product = row
+    item_id, item_state, _phone, brand, product, purchase_status = row
+    # Idempotent: Prava redirect may omit session_id, so we also poll after
+    # sending the approval link — both paths can race.
+    if purchase_status in {"PAID", "FAILED"} or item_state in {"ORDERED", "FAILED"}:
+        return
 
     result: PaymentResult | None = None
     try:
@@ -81,8 +85,17 @@ async def _finalize_payment(session_id: str) -> None:
 
 
 @router.get("/prava/callback")
-async def prava_callback(session_id: str, background_tasks: BackgroundTasks):
-    background_tasks.add_task(_finalize_payment, session_id)
+async def prava_callback(
+    background_tasks: BackgroundTasks,
+    session_id: str | None = None,
+    session: str | None = None,
+):
+    # Prava hosted checkout redirects to callback_url as-is (often with no
+    # query params). Finalization is primarily driven by post-link polling;
+    # if a session id is present we still finalize here.
+    sid = session_id or session
+    if sid:
+        background_tasks.add_task(_finalize_payment, sid)
     return HTMLResponse(
         "<html><body>Payment processed — you can close this tab.</body></html>"
     )

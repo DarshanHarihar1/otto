@@ -199,3 +199,9 @@ async def handle_text_message(user_phone: str, chat_id: str, text: str) -> None:
         f"₹{price_paise / 100:.0f} for {brand} {product}. Sending the approval link now.",
     )
     await send_text(chat_id, session.approval_url)
+
+    # Prava's hosted redirect often hits callback_url with no session_id.
+    # Poll payment-result here (per REST walkthrough) instead of relying on it.
+    from app.routes.prava_callback import _finalize_payment
+
+    await _finalize_payment(session.session_id)

@@ -11,6 +11,15 @@ def test_callback_acks_immediately():
     resp = client.get("/prava/callback", params={"session_id": "nonexistent"})
 
     assert resp.status_code == 200
+    assert "Payment processed" in resp.text
+
+
+def test_callback_acks_without_session_id():
+    # Prava hosted mode redirects to callback_url with no query params.
+    resp = client.get("/prava/callback")
+
+    assert resp.status_code == 200
+    assert "Payment processed" in resp.text
 
 
 async def test_finalize_payment_marks_ordered_and_notifies_saved_chat():
@@ -18,7 +27,14 @@ async def test_finalize_payment_marks_ordered_and_notifies_saved_chat():
 
     mock_cur = MagicMock()
     mock_cur.fetchone.side_effect = [
-        ("item-uuid-1", "AWAITING_APPROVAL", "+919900475117", "Minimalist", "Serum"),
+        (
+            "item-uuid-1",
+            "AWAITING_APPROVAL",
+            "+919900475117",
+            "Minimalist",
+            "Serum",
+            "AWAITING_APPROVAL",
+        ),
         ("chat-uuid-1",),
     ]
     mock_cursor_cm = MagicMock()
@@ -68,7 +84,14 @@ async def test_finalize_payment_fails_without_approving_non_ready_result():
 
     mock_cur = MagicMock()
     mock_cur.fetchone.side_effect = [
-        ("item-uuid-1", "AWAITING_APPROVAL", "+919900475117", "Minimalist", "Serum"),
+        (
+            "item-uuid-1",
+            "AWAITING_APPROVAL",
+            "+919900475117",
+            "Minimalist",
+            "Serum",
+            "AWAITING_APPROVAL",
+        ),
         ("chat-uuid-1",),
     ]
     mock_cursor_cm = MagicMock()

@@ -61,7 +61,7 @@ async def create_session(
     callback_url = f"{settings.public_base_url.rstrip('/')}/prava/callback"
     payload = {
         "user_id": f"otto_{settings.demo_user_phone.lstrip('+')}",
-        "user_email": "demo@otto.local",
+        "user_email": "demo@example.com",
         "total_amount": amount,
         "currency": "INR",
         "integration_type": "full_checkout",
