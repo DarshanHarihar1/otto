@@ -15,6 +15,8 @@ from app.routes.webhook import (
     _extract_media_url,
     _extract_text,
     _handle_message_received,
+    _handle_reaction_added,
+    _reaction_to_intent,
     _seen_webhooks,
 )
 
@@ -233,3 +235,87 @@ async def test_handle_message_received_routes_media_part_to_orchestrator():
         "https://cdn.linqapp.com/photo.jpg",
     )
     mock_send.assert_not_awaited()
+
+
+REAL_REACTION_ADDED_PAYLOAD = {
+    "api_version": "v3",
+    "webhook_version": "2026-02-03",
+    "event_type": "reaction.added",
+    "event_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+    "data": {
+        "chat_id": "6e4a83dc-ffba-4761-924c-5292fd8d84e3",
+        "message_id": "550e8400-e29b-41d4-a716-446655440001",
+        "part_index": 0,
+        "reaction_type": "like",
+        "custom_emoji": None,
+        "is_from_me": False,
+        "from": "+919900475117",
+        "from_handle": {"handle": "+919900475117", "is_me": False},
+        "service": "iMessage",
+    },
+}
+
+
+def test_reaction_to_intent_maps_tapbacks():
+    assert _reaction_to_intent("like", None) == "yes"
+    assert _reaction_to_intent("love", None) == "yes"
+    assert _reaction_to_intent("emphasize", None) == "yes"
+    assert _reaction_to_intent("dislike", None) == "no"
+    assert _reaction_to_intent("laugh", None) is None
+    assert _reaction_to_intent("custom", "👍") == "yes"
+    assert _reaction_to_intent("custom", "👎") == "no"
+    assert _reaction_to_intent("custom", "🔥") is None
+
+
+def test_reaction_added_dispatches_yes_through_route():
+    body = json.dumps(REAL_REACTION_ADDED_PAYLOAD).encode()
+    timestamp = str(int(time.time()))
+    with patch(
+        "app.orchestrator.handle_text_message", AsyncMock()
+    ) as mock_handle_text:
+        resp = client.post(
+            "/webhook/linq",
+            content=body,
+            headers={
+                "webhook-id": "rxn_1",
+                "webhook-timestamp": timestamp,
+                "webhook-signature": _sign(body, "rxn_1", timestamp),
+            },
+        )
+        assert resp.status_code == 200
+        mock_handle_text.assert_awaited_once_with(
+            "+919900475117",
+            "6e4a83dc-ffba-4761-924c-5292fd8d84e3",
+            "yes",
+        )
+
+
+async def test_handle_reaction_added_dislike_is_no():
+    payload = {
+        **REAL_REACTION_ADDED_PAYLOAD,
+        "data": {
+            **REAL_REACTION_ADDED_PAYLOAD["data"],
+            "reaction_type": "dislike",
+        },
+    }
+    with patch(
+        "app.orchestrator.handle_text_message", AsyncMock()
+    ) as mock_handle_text:
+        await _handle_reaction_added(payload)
+    mock_handle_text.assert_awaited_once_with(
+        "+919900475117",
+        "6e4a83dc-ffba-4761-924c-5292fd8d84e3",
+        "no",
+    )
+
+
+async def test_handle_reaction_added_ignores_from_me():
+    payload = {
+        **REAL_REACTION_ADDED_PAYLOAD,
+        "data": {**REAL_REACTION_ADDED_PAYLOAD["data"], "is_from_me": True},
+    }
+    with patch(
+        "app.orchestrator.handle_text_message", AsyncMock()
+    ) as mock_handle_text:
+        await _handle_reaction_added(payload)
+    mock_handle_text.assert_not_awaited()

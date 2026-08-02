@@ -372,7 +372,7 @@ async def test_identified_item_reaches_quoted_with_shopify_price():
         mock_cur.execute.call_args_list[2][0][1][0],
     )
     mock_send.assert_awaited_once_with(
-        "chat1", "found it — Minimalist Serum, 30ml. ₹549. want it?"
+        "chat1", "found it — Minimalist Serum, 30ml. ₹549. want it? 👍 or say yes"
     )
 
 
@@ -608,7 +608,7 @@ async def test_handle_text_message_accepts_substitute_and_quotes():
     assert any("state = 'QUOTED'" in c[0][0] for c in mock_cur.execute.call_args_list)
     mock_send.assert_awaited_once_with(
         "chat1",
-        "locked in — Minimalist Moisturizer 50ml, ₹399. say yes if you wanna buy",
+        "locked in — Minimalist Moisturizer 50ml, ₹399. 👍 or say yes",
     )
 
 

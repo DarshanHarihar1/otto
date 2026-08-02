@@ -66,6 +66,26 @@ def _extract_media_url(parts: list[dict]) -> str | None:
     return None
 
 
+_AFFIRM_REACTIONS = frozenset({"like", "love", "emphasize"})
+_DECLINE_REACTIONS = frozenset({"dislike"})
+_AFFIRM_EMOJI = frozenset({"👍", "❤️", "♥️", "✅", "💯"})
+_DECLINE_EMOJI = frozenset({"👎"})
+
+
+def _reaction_to_intent(reaction_type: str | None, custom_emoji: str | None) -> str | None:
+    """Map an iMessage tapback to the same yes/no intents as typed replies."""
+    if reaction_type in _AFFIRM_REACTIONS:
+        return "yes"
+    if reaction_type in _DECLINE_REACTIONS:
+        return "no"
+    if reaction_type == "custom" and custom_emoji:
+        if custom_emoji in _AFFIRM_EMOJI:
+            return "yes"
+        if custom_emoji in _DECLINE_EMOJI:
+            return "no"
+    return None
+
+
 async def _handle_message_received(payload: dict) -> None:
     data = payload["data"]
     chat_id = data["chat"]["id"]
@@ -96,6 +116,29 @@ async def _handle_message_received(payload: dict) -> None:
             await handle_text_message(phone, chat_id, text)
 
 
+async def _handle_reaction_added(payload: dict) -> None:
+    data = payload.get("data") or {}
+    if data.get("is_from_me"):
+        return
+    chat_id = data.get("chat_id")
+    phone = data.get("from") or (data.get("from_handle") or {}).get("handle")
+    if not chat_id or not phone:
+        logger.warning("reaction.added missing chat_id/from: %s", list(data.keys()))
+        return
+    intent = _reaction_to_intent(data.get("reaction_type"), data.get("custom_emoji"))
+    if intent is None:
+        return
+    logger.info(
+        "Tapback checkout intent=%s type=%s chat=%s",
+        intent,
+        data.get("reaction_type"),
+        chat_id,
+    )
+    from app.orchestrator import handle_text_message
+
+    await handle_text_message(phone, chat_id, intent)
+
+
 _seen_webhooks: dict[str, float] = {}
 _WEBHOOK_DEDUP_SECONDS = 600
 
@@ -124,6 +167,9 @@ async def linq_webhook(
             return {"ok": True}
         _seen_webhooks[webhook_id] = now
     payload = await request.json()
-    if payload.get("event_type") == "message.received":
+    event_type = payload.get("event_type")
+    if event_type == "message.received":
         background_tasks.add_task(_handle_message_received, payload)
+    elif event_type == "reaction.added":
+        background_tasks.add_task(_handle_reaction_added, payload)
     return {"ok": True}
