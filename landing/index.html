@@ -184,7 +184,18 @@
     .msg.photo .bubble { padding: 4px; background: var(--bubble); border-radius: 19px; border-bottom-right-radius: 6px; }
     .msg.photo img { display: block; width: 150px; height: auto; border-radius: 15px; }
 
-    .msg.link { max-width: 82%; }
+    .msg.link { max-width: 82%; position: relative; }
+
+    /* tapback reaction */
+    .tapback {
+      position: absolute; top: -11px; right: -9px;
+      width: 28px; height: 28px; border-radius: 50%;
+      background: #fff; border: 1px solid rgba(0,0,0,.08);
+      box-shadow: 0 3px 8px -2px rgba(0,0,0,.28);
+      display: flex; align-items: center; justify-content: center; font-size: 15px;
+      animation: tbpop .5s cubic-bezier(.18,1.5,.4,1) .2s backwards;
+    }
+    @keyframes tbpop { 0% { opacity: 0; transform: scale(0); } 60% { opacity: 1; transform: scale(1.15); } 100% { opacity: 1; transform: scale(1); } }
     .pralink {
       display: flex; align-items: center; gap: 11px; width: 214px;
       background: #fff; border: 1px solid rgba(0,0,0,.10); border-radius: 15px;
@@ -243,8 +254,8 @@
     .diff { padding: 24px 0 104px; }
     .diff__head { display: flex; align-items: baseline; justify-content: space-between; gap: 20px; border-top: 1px solid var(--ink); padding-top: 22px; margin-bottom: 54px; }
     .diff__head h2 { font-family: var(--display); font-weight: 600; text-transform: lowercase; font-size: clamp(24px, 3vw, 34px); letter-spacing: -0.035em; }
-    .diff__grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0; }
-    .diff__col { padding: 0 40px; border-left: 1px solid var(--line); }
+    .diff__grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0; }
+    .diff__col { padding: 0 28px; border-left: 1px solid var(--line); }
     .diff__col:first-child { border-left: 0; padding-left: 0; }
     .diff__n { font-family: var(--mono); font-size: 12px; letter-spacing: 0.16em; color: var(--blue); }
     .diff__t { font-family: var(--display); font-weight: 600; text-transform: lowercase; font-size: 27px; letter-spacing: -0.025em; margin: 16px 0 12px; }
@@ -346,7 +357,6 @@
     <div class="hero__glow"></div>
     <div class="wrap hero__grid">
       <div class="hero__copy">
-        <div class="mono fade-up"><span class="dot"></span>shopping, by text message</div>
         <h1 class="hero__title">
           <span class="reveal-line"><span>a photo is</span></span>
           <span class="reveal-line"><span>the whole</span></span>
@@ -377,6 +387,7 @@
               </div>
               <div class="msg them"><div class="bubble">ok this looks like blue tokai french roast, checking if i can get it</div></div>
               <div class="msg them"><div class="bubble">found it. blue tokai french roast, dark roast whole bean, 250g. ₹650. want it?</div></div>
+              <div class="msg them"><div class="bubble">btw, last time from blue tokai you got attikan estate, light roast, back in march. nice switch to something bolder</div></div>
               <div class="msg them"><div class="bubble">same thing's ₹40 cheaper at kapi. say switch?</div></div>
               <div class="msg me"><div class="bubble">yeah let's switch</div></div>
               <div class="msg them"><div class="bubble">cool, ₹610. approve here (one tap):</div></div>
@@ -386,6 +397,7 @@
                   <span class="pl-txt"><b>Prava Pay</b><span>collect.prava.space</span></span>
                 </a>
               </div>
+              <div class="msg me"><div class="bubble">paid</div></div>
               <div class="msg them"><div class="bubble">ordered ✅ french roast. saved on your shelf</div></div>
               <div class="msg them"><div class="bubble">one more thing, turn on easy refills (won't charge now):</div></div>
               <div class="msg them link">
@@ -393,6 +405,7 @@
                   <span class="pl-logo"><svg viewBox="0 0 24 24"><path d="M22 5.9c-.8.4-1.6.6-2.5.7.9-.5 1.6-1.4 1.9-2.4-.8.5-1.8.9-2.7 1.1-.8-.9-2-1.4-3.2-1.4-2.4 0-4.4 2-4.4 4.4 0 .3 0 .7.1 1C7.7 9.1 4.1 7.1 1.7 4.1c-.4.6-.6 1.4-.6 2.2 0 1.5.8 2.9 2 3.7-.7 0-1.4-.2-2-.5v.1c0 2.1 1.5 3.9 3.5 4.3-.4.1-.8.2-1.2.2-.3 0-.6 0-.8-.1.6 1.8 2.2 3 4.1 3.1-1.5 1.2-3.4 1.9-5.5 1.9-.4 0-.7 0-1.1-.1 2 1.3 4.3 2 6.8 2 8.2 0 12.6-6.8 12.6-12.6v-.6c.9-.6 1.6-1.4 2.2-2.3z"/></svg></span>
                   <span class="pl-txt"><b>Prava Pay</b><span>collect.prava.space</span></span>
                 </a>
+                <div class="tapback">👍</div>
               </div>
               <div class="msg them"><div class="bubble">refills on. just text "refill french roast" next time, no passkey</div></div>
               <div class="typing" id="typing"><div class="bubble"><i></i><i></i><i></i></div></div>
@@ -435,17 +448,22 @@
         <div class="diff__col sr">
           <div class="diff__n">01 · shops around</div>
           <div class="diff__t">finds it cheaper.</div>
-          <div class="diff__d">before you pay, otto checks other stores for the <b>same item</b>. cheaper somewhere? it tells you. reply <b>switch</b> to take it.</div>
+          <div class="diff__d">cheaper somewhere else? otto finds out. just say <b>switch</b>.</div>
         </div>
         <div class="diff__col sr s1">
           <div class="diff__n">02 · no forms, ever</div>
           <div class="diff__t">a 👍 is a yes.</div>
-          <div class="diff__d">approval lives inside the chat. like the quote to buy, dislike to pass. no checkout page, no card typed out, ever.</div>
+          <div class="diff__d"><b>like</b> to buy, <b>dislike</b> to pass. no forms, no cards, no page.</div>
         </div>
         <div class="diff__col sr s2">
           <div class="diff__n">03 · buys it again</div>
           <div class="diff__t">refills on a word.</div>
-          <div class="diff__d">say <b>refill</b> and otto reorders on an approved spend-cap. no re-approval until you hit the limit, then it asks again.</div>
+          <div class="diff__d">say <b>refill</b>. it reorders itself, up to a cap you set.</div>
+        </div>
+        <div class="diff__col sr s3">
+          <div class="diff__n">04 · remembers you</div>
+          <div class="diff__t">knows your usual.</div>
+          <div class="diff__d">it knows what you got last time, <b>and says so</b>. coming soon.</div>
         </div>
       </div>
     </div>
@@ -527,18 +545,18 @@
           var m = msgs[i++];
           if (m.classList.contains('me')) {
             // the user replies, no typing dots
-            setTimeout(function () { reveal(m); setTimeout(step, 850); }, 620);
+            setTimeout(function () { reveal(m); setTimeout(step, 1700); }, 1240);
           } else {
             // otto "types" before each reply
             showTyping();
             setTimeout(function () {
               if (typing) typing.style.display = 'none';
               reveal(m);
-              setTimeout(step, 640);
-            }, 1050);
+              setTimeout(step, 1280);
+            }, 2100);
           }
         }
-        setTimeout(step, 650);
+        setTimeout(step, 1300);
       }
 
       /* --- scroll reveals --- */
