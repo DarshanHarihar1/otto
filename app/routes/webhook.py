@@ -96,6 +96,10 @@ async def _handle_message_received(payload: dict) -> None:
             await handle_text_message(phone, chat_id, text)
 
 
+_seen_webhooks: dict[str, float] = {}
+_WEBHOOK_DEDUP_SECONDS = 600
+
+
 @router.post("/webhook/linq")
 async def linq_webhook(
     request: Request,
@@ -107,6 +111,18 @@ async def linq_webhook(
     body = await request.body()
     if not _verify_signature(body, webhook_id, webhook_timestamp, webhook_signature):
         raise HTTPException(status_code=401, detail="bad signature")
+    if webhook_id:
+        now = time.time()
+        stale = [
+            wid
+            for wid, seen_at in _seen_webhooks.items()
+            if now - seen_at > _WEBHOOK_DEDUP_SECONDS
+        ]
+        for wid in stale:
+            del _seen_webhooks[wid]
+        if webhook_id in _seen_webhooks:
+            return {"ok": True}
+        _seen_webhooks[webhook_id] = now
     payload = await request.json()
     if payload.get("event_type") == "message.received":
         background_tasks.add_task(_handle_message_received, payload)

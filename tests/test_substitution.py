@@ -2,7 +2,11 @@ from unittest.mock import AsyncMock, patch
 
 from app.luna import VariantMatch
 from app.registry import Registry
-from app.substitution import NO_SUBSTITUTE_CATEGORIES, find_substitute
+from app.substitution import (
+    NO_SUBSTITUTE_CATEGORIES,
+    _substitute_queries,
+    find_substitute,
+)
 from app.vision import Identification
 
 SKINCARE_REGISTRY = Registry(
@@ -15,6 +19,29 @@ HEALTH_REGISTRY = Registry(
         "Health/Pharmacy": ["kapiva.in"],
     }
 )
+
+
+def test_substitute_queries_prefer_brand_stripped_terms():
+    identification = Identification(
+        object_type="bottle",
+        brand="Vaseline",
+        product="Intensive Care Cocoa Glow Serum-in-Lotion",
+        variant="Cocoa Butter",
+        category="Beauty & Personal Care/Skin Care",
+        search_terms=[
+            "Vaseline Intensive Care Cocoa Glow Serum-in-Lotion",
+            "Vaseline Cocoa Glow cocoa butter 48H body lotion",
+        ],
+        confidence=0.9,
+        reasoning="clear label",
+        missing_info=None,
+        suggested_photo=None,
+    )
+    queries = _substitute_queries(identification)
+    assert "Intensive Care Cocoa Glow Serum-in-Lotion" in queries
+    assert "Cocoa Glow cocoa butter 48H body lotion" in queries
+    assert "body lotion" in queries
+    assert not any(q.lower().startswith("vaseline vaseline") for q in queries)
 
 
 async def test_health_category_never_substitutes_even_with_good_candidates():
@@ -32,7 +59,9 @@ async def test_health_category_never_substitutes_even_with_good_candidates():
     )
     with patch(
         "app.substitution.search_suggest",
-        AsyncMock(return_value=[{"handle": "paracetamol-650", "title": "Paracetamol 650mg"}]),
+        AsyncMock(
+            return_value=[{"handle": "paracetamol-650", "title": "Paracetamol 650mg"}]
+        ),
     ) as mock_search:
         offer = await find_substitute(identification, HEALTH_REGISTRY)
     assert offer is None
@@ -64,10 +93,12 @@ async def test_skincare_category_offers_labelled_substitute():
         patch(
             "app.substitution.search_suggest",
             AsyncMock(
-                return_value=[{"handle": "moisturizer-50ml", "title": "Moisturizer 50ml"}]
+                return_value=[
+                    {"handle": "moisturizer-50ml", "title": "Moisturizer 50ml"}
+                ]
             ),
         ),
-        patch("app.substitution.match_variant", AsyncMock(return_value=fake_match)),
+        patch("app.substitution.match_substitute", AsyncMock(return_value=fake_match)),
         patch(
             "app.substitution.get_product",
             AsyncMock(return_value={"variants": [{"id": 1, "price": "399.00"}]}),
@@ -103,9 +134,11 @@ async def test_weak_similarity_below_floor_offers_nothing():
     with (
         patch(
             "app.substitution.search_suggest",
-            AsyncMock(return_value=[{"handle": "unrelated-item", "title": "Something else"}]),
+            AsyncMock(
+                return_value=[{"handle": "unrelated-item", "title": "Something else"}]
+            ),
         ),
-        patch("app.substitution.match_variant", AsyncMock(return_value=fake_match)),
+        patch("app.substitution.match_substitute", AsyncMock(return_value=fake_match)),
     ):
         offer = await find_substitute(identification, SKINCARE_REGISTRY)
     assert offer is None

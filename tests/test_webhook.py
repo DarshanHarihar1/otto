@@ -11,9 +11,18 @@ from fastapi.testclient import TestClient
 
 from app.config import settings
 from app.main import app
-from app.routes.webhook import _extract_media_url, _extract_text, _handle_message_received
+from app.routes.webhook import (
+    _extract_media_url,
+    _extract_text,
+    _handle_message_received,
+    _seen_webhooks,
+)
 
 client = TestClient(app)
+
+
+def setup_function():
+    _seen_webhooks.clear()
 
 # Captured from a real Linq message.received webhook during live testing —
 # event_type (not "event"), data.chat.id (not data.chat_id), text in

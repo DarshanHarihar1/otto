@@ -61,6 +61,48 @@ async def match_variant(
     return await asyncio.to_thread(_match_variant_sync, identification, candidates)
 
 
+def _match_substitute_sync(
+    identification: Identification, candidates: list[dict]
+) -> VariantMatch:
+    candidate_summary = "\n".join(
+        f"- handle={c.get('handle')} title={c.get('title')}" for c in candidates
+    )
+    response = _client.responses.parse(
+        model=_MODEL,
+        input=[
+            {
+                "role": "system",
+                "content": (
+                    "Find the best CROSS-BRAND substitute for the target product. "
+                    "A different brand is expected and must NOT lower similarity. "
+                    "Score 0-1 on product type (e.g. body lotion vs face serum), "
+                    "use case, and key ingredients/claims. A solid same-job body "
+                    "lotion for a body lotion should score >= 0.7 even when brands "
+                    "differ. List concrete shared_attributes and differences — "
+                    "always call out the brand change. one_line_pitch should name "
+                    "the substitute product clearly."
+                ),
+            },
+            {
+                "role": "user",
+                "content": (
+                    f"Target: brand={identification.brand} "
+                    f"product={identification.product} variant={identification.variant}\n"
+                    f"Candidates:\n{candidate_summary}"
+                ),
+            },
+        ],
+        text_format=VariantMatch,
+    )
+    return response.output_parsed
+
+
+async def match_substitute(
+    identification: Identification, candidates: list[dict]
+) -> VariantMatch:
+    return await asyncio.to_thread(_match_substitute_sync, identification, candidates)
+
+
 def _match_shopify_variant_sync(
     identification: Identification, variants: list[dict]
 ) -> ShopifyVariantMatch:
