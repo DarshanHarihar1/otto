@@ -3,7 +3,8 @@ import logging
 import httpx
 
 from app.config import settings
-from app.routes.webhook import LINQ_BASE, send_text
+from app.routes.webhook import LINQ_BASE
+from app.routes.webhook import send_text as _raw_send_text
 from app.state_machine import ItemState
 from app.vision import Identification
 
@@ -24,6 +25,14 @@ async def send_typing(chat_id: str, on: bool = True) -> None:
         logger.exception("Could not update typing indicator for chat %s", chat_id)
 
 
+async def send_with_typing(chat_id: str, text: str) -> None:
+    await send_typing(chat_id, True)
+    try:
+        await _raw_send_text(chat_id, text)
+    finally:
+        await send_typing(chat_id, False)
+
+
 async def compose_and_send(
     chat_id: str, state: ItemState, result: Identification
 ) -> None:
@@ -37,8 +46,7 @@ async def compose_and_send(
     elif state == ItemState.UNBUYABLE:
         text = (
             f"That's {result.brand or ''} {result.product or 'this item'}. "
-            f"I can't buy that — it's not something I can get through the "
-            f"merchants I use."
+            f"I can't buy that — it doesn't sell through the checkout I use."
         )
     elif state == ItemState.IDENTIFIED:
         text = (
@@ -47,4 +55,4 @@ async def compose_and_send(
         )
     else:
         text = f"({state.value})"
-    await send_text(chat_id, text)
+    await send_with_typing(chat_id, text)

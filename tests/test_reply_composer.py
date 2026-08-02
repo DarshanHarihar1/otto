@@ -16,7 +16,7 @@ async def test_needs_angle_asks_specific_angle():
         confidence=0.5, reasoning="blurry", missing_info="the concentration %",
         suggested_photo="the front label, straight-on",
     )
-    with patch("app.reply_composer.send_text", AsyncMock()) as mock_send:
+    with patch("app.reply_composer.send_with_typing", AsyncMock()) as mock_send:
         await compose_and_send("chat1", ItemState.NEEDS_ANGLE, result)
     text = mock_send.call_args.args[1]
     assert "front label" in text
@@ -29,11 +29,12 @@ async def test_unbuyable_names_the_item():
         variant=None, category="Electronics/Laptops", search_terms=[],
         confidence=0.9, reasoning="clear", missing_info=None, suggested_photo=None,
     )
-    with patch("app.reply_composer.send_text", AsyncMock()) as mock_send:
+    with patch("app.reply_composer.send_with_typing", AsyncMock()) as mock_send:
         await compose_and_send("chat1", ItemState.UNBUYABLE, result)
     text = mock_send.call_args.args[1]
     assert "MacBook Pro" in text
     assert "can't buy" in text
+    assert "checkout" in text
 
 
 async def test_identified_uses_fallbacks_for_missing_product_details():
@@ -42,7 +43,7 @@ async def test_identified_uses_fallbacks_for_missing_product_details():
         category="Beauty & Personal Care/Skin Care", search_terms=["serum"],
         confidence=0.95, reasoning="clear", missing_info=None, suggested_photo=None,
     )
-    with patch("app.reply_composer.send_text", AsyncMock()) as mock_send:
+    with patch("app.reply_composer.send_with_typing", AsyncMock()) as mock_send:
         await compose_and_send("chat1", ItemState.IDENTIFIED, result)
 
     assert "None" not in mock_send.call_args.args[1]

@@ -10,8 +10,8 @@ from app.media import archive_photo, download_media
 from app.mandates import MandateCapExceeded, charge_mandate
 from app.prava import create_session
 from app.reply_composer import compose_and_send, send_typing
+from app.reply_composer import send_with_typing as send_text
 from app.resolver import resolve
-from app.routes.webhook import send_text
 from app.shelf import find_shelf_item
 from app.state_machine import ItemState, gate_identification
 from app.substitution import find_substitute

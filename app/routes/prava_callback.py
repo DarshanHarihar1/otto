@@ -14,7 +14,7 @@ from app.prava import (
     poll_payment_result,
     report_status,
 )
-from app.routes.webhook import send_text
+from app.reply_composer import send_with_typing as send_text
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
