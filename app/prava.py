@@ -145,14 +145,14 @@ async def create_session_with_mandate(
     )
 
 
-async def get_mandate_id_for_session(session_id: str) -> str | None:
-    """Resolve standing mandate id after a mandate checkout session.
+async def get_mandate_id_for_customer(
+    *, created_after_iso: str | None = None
+) -> str | None:
+    """Newest active standing (non-one_time) mandate for the Otto customer.
 
-    Docs suggest standing_only=true, but sandbox returns [] for that filter while
-    the active monthly listed mandate appears when listing all mandates. Prefer
-    active non-one_time mandates for this customer.
+    Optionally require createdAt >= created_after_iso so a mandate_setup session
+    does not accidentally bind an older burned mandate.
     """
-    del session_id  # kept for call-site stability; list is customer-scoped
     async with httpx.AsyncClient(timeout=_TIMEOUT_SECONDS) as client:
         response = await client.get(
             f"{settings.prava_base_url}/v1/mandates",
@@ -168,14 +168,25 @@ async def get_mandate_id_for_session(session_id: str) -> str | None:
         if m.get("status") == "active"
         and m.get("recurringFrequency") not in {None, "one_time"}
     ]
-    candidates = standing or [m for m in mandates if m.get("status") == "active"]
-    if not candidates:
+    if created_after_iso:
+        standing = [
+            m
+            for m in standing
+            if (m.get("createdAt") or "") >= created_after_iso
+        ]
+    if not standing:
         return None
-    candidates.sort(
+    standing.sort(
         key=lambda m: m.get("createdAt") or m.get("updatedAt") or "", reverse=True
     )
-    mandate_id = candidates[0].get("id")
+    mandate_id = standing[0].get("id")
     return mandate_id if isinstance(mandate_id, str) else None
+
+
+async def get_mandate_id_for_session(session_id: str) -> str | None:
+    """Resolve standing mandate id after a mandate checkout/setup session."""
+    del session_id  # list is customer-scoped; callers that need freshness use created_after
+    return await get_mandate_id_for_customer()
 
 
 async def charge_mandate(mandate_id: str, amount_paise: int) -> PaymentResult:

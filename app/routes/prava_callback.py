@@ -10,7 +10,7 @@ from app.mandates import DEFAULT_MANDATE_CAP_PAISE
 from app.prava import (
     PaymentResult,
     create_session_with_mandate,
-    get_mandate_id_for_session,
+    get_mandate_id_for_customer,
     poll_payment_result,
     report_status,
 )
@@ -19,7 +19,7 @@ from app.routes.webhook import send_text
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
-_MANDATE_POLL_ATTEMPTS = 30
+_MANDATE_POLL_ATTEMPTS = 60
 _MANDATE_POLL_INTERVAL_SECONDS = 3
 
 
@@ -27,7 +27,7 @@ async def _attach_mandate_from_setup_session(session_id: str) -> bool:
     """Complete an authorize-only mandate_setup session: save mandate_id, no charge."""
     with get_conn() as conn, conn.cursor() as cur:
         cur.execute(
-            """SELECT p.item_id, i.brand, i.product, p.status, i.mandate_id
+            """SELECT p.item_id, i.brand, i.product, p.status, i.mandate_id, p.created_at
                FROM purchases p JOIN items i ON i.id = p.item_id
                WHERE p.prava_session_id = %s""",
             (session_id,),
@@ -35,13 +35,14 @@ async def _attach_mandate_from_setup_session(session_id: str) -> bool:
         row = cur.fetchone()
     if row is None:
         return False
-    item_id, brand, product, purchase_status, existing_mandate = row
-    if existing_mandate:
+    item_id, brand, product, purchase_status, existing_mandate, created_at = row
+    if existing_mandate and purchase_status == "MANDATE_READY":
         return True
     if purchase_status not in {"MANDATE_SETUP", "AWAITING_APPROVAL"}:
         return False
 
-    mandate_id = await get_mandate_id_for_session(session_id)
+    created_after = created_at.isoformat() if created_at is not None else None
+    mandate_id = await get_mandate_id_for_customer(created_after_iso=created_after)
     if not mandate_id:
         return False
 

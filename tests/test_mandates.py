@@ -5,6 +5,7 @@ from app.config import settings
 from app.prava import (
     charge_mandate,
     create_session_with_mandate,
+    get_mandate_id_for_customer,
     get_mandate_id_for_session,
 )
 
@@ -75,6 +76,37 @@ async def test_get_mandate_id_for_session_lists_standing_mandates():
 
     mandate_id = await get_mandate_id_for_session("ses_anything")
     assert mandate_id == "mdt_new"
+
+
+@respx.mock
+async def test_get_mandate_id_for_customer_respects_created_after():
+    respx.get(f"{settings.prava_base_url}/v1/mandates").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "mandates": [
+                    {
+                        "id": "mdt_old",
+                        "status": "active",
+                        "recurringFrequency": "monthly",
+                        "createdAt": "2026-07-01T00:00:00Z",
+                    },
+                    {
+                        "id": "mdt_new",
+                        "status": "active",
+                        "recurringFrequency": "monthly",
+                        "createdAt": "2026-08-02T12:00:00Z",
+                    },
+                ]
+            },
+        )
+    )
+
+    assert (
+        await get_mandate_id_for_customer(created_after_iso="2026-08-02T11:00:00Z")
+        == "mdt_new"
+    )
+    assert await get_mandate_id_for_customer(created_after_iso="2026-08-02T13:00:00Z") is None
 
 
 @respx.mock
