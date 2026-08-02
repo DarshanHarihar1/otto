@@ -117,7 +117,7 @@ async def handle_photo_message(
                 await send_text(
                     chat_id,
                     f"found it — {result.brand} {result.product}{variant_bit}. "
-                    f"₹{price_rupees:.0f}. want it? 👍 or say yes",
+                    f"₹{price_rupees:.0f}. want it?",
                 )
             else:
                 offer = await find_substitute(result, _REGISTRY)
@@ -202,7 +202,7 @@ async def handle_text_message(user_phone: str, chat_id: str, text: str) -> None:
             brand, product, _merchant, price_paise = cur.fetchone()
         await send_text(
             chat_id,
-            f"locked in — {brand} {product}, ₹{price_paise / 100:.0f}. 👍 or say yes",
+            f"locked in — {brand} {product}, ₹{price_paise / 100:.0f}. say yes if you wanna buy",
         )
         return
 
@@ -309,7 +309,7 @@ async def handle_text_message(user_phone: str, chat_id: str, text: str) -> None:
                    WHERE id = %s AND state = 'AWAITING_APPROVAL'""",
                 (item_id,),
             )
-        await send_text(chat_id, "checkout hiccup — 👍 or say yes again?")
+        await send_text(chat_id, "checkout hiccup — say yes again?")
         return
 
     with get_conn() as conn, conn.cursor() as cur:
