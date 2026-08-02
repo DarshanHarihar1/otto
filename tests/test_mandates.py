@@ -134,3 +134,17 @@ async def test_charge_mandate_maps_credentials():
     assert result.cvv == "123"
     assert result.expiry == "12/2030"
     assert result.txn_ref_id == "txn_9"
+
+
+async def test_charge_mandate_raises_when_over_cap():
+    import pytest
+
+    from app.mandates import MandateCapExceeded
+    from app.mandates import charge_mandate as mandates_charge
+
+    with pytest.raises(MandateCapExceeded) as exc_info:
+        await mandates_charge(
+            "fake-mandate-id", amount_paise=1_098_000, cap_paise=100_000
+        )
+    assert exc_info.value.requested_paise == 1_098_000
+    assert exc_info.value.cap_paise == 100_000

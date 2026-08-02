@@ -1,12 +1,13 @@
 import asyncio
 import json
 import logging
+import re
 import uuid
 
 from app.db import get_conn
 from app.registry import load_registry
 from app.media import archive_photo, download_media
-from app.mandates import charge_mandate
+from app.mandates import MandateCapExceeded, charge_mandate
 from app.prava import create_session
 from app.reply_composer import compose_and_send, send_typing
 from app.resolver import resolve
@@ -206,7 +207,11 @@ async def handle_text_message(user_phone: str, chat_id: str, text: str) -> None:
         return
 
     if text_lower.startswith("refill "):
-        label_query = text_lower.removeprefix("refill ").strip()
+        rest = text_lower.removeprefix("refill ").strip()
+        qty_match = re.search(r"[x×]\s*(\d+)$", rest)
+        quantity = int(qty_match.group(1)) if qty_match else 1
+        label_query = re.sub(r"[x×]\s*\d+$", "", rest).strip()
+
         shelf_item = find_shelf_item(user_phone, label_query)
         if shelf_item is None:
             await send_text(
@@ -219,13 +224,20 @@ async def handle_text_message(user_phone: str, chat_id: str, text: str) -> None:
                 "No standing approval for that item yet — I'll need you to approve it again.",
             )
             return
+
+        total_paise = shelf_item.last_price_paise * quantity
         try:
-            result = await charge_mandate(
-                shelf_item.mandate_id, shelf_item.last_price_paise
-            )
+            result = await charge_mandate(shelf_item.mandate_id, total_paise)
             if result.status == "failed" or not result.credentials_ready:
                 msg = result.error_message or result.status
                 raise ValueError(msg)
+        except MandateCapExceeded as e:
+            await send_text(
+                chat_id,
+                f"That's ₹{e.requested_paise / 100:.0f} — over the ₹{e.cap_paise / 100:.0f} "
+                f"cap you set. The card network declined it. Want to raise the cap?",
+            )
+            return
         except Exception as exc:
             logger.exception(
                 "Mandate charge failed for item %s mandate %s",
@@ -245,11 +257,11 @@ async def handle_text_message(user_phone: str, chat_id: str, text: str) -> None:
         with get_conn() as conn, conn.cursor() as cur:
             cur.execute(
                 "INSERT INTO purchases (item_id, amount_paise, status) VALUES (%s, %s, 'PAID')",
-                (shelf_item.item_id, shelf_item.last_price_paise),
+                (shelf_item.item_id, total_paise),
             )
         await send_text(
             chat_id,
-            f"On its way. ₹{shelf_item.last_price_paise / 100:.0f}, same as last time.",
+            f"On its way. ₹{total_paise / 100:.0f}, same as last time.",
         )
         return
 

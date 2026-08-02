@@ -669,3 +669,88 @@ async def test_handle_text_message_refill_charges_mandate_without_approval_link(
     mock_send.assert_awaited_once_with(
         "chat1", "On its way. ₹599, same as last time."
     )
+
+
+async def test_handle_text_message_refill_with_quantity_charges_total():
+    from app.orchestrator import handle_text_message
+    from app.prava import PaymentResult
+    from app.shelf import ShelfItem
+
+    shelf = ShelfItem(
+        item_id="item-uuid-1",
+        brand="Bombay Shaving Company",
+        product="Power Play NXT Trimmer",
+        merchant="bombayshavingcompany.com",
+        shopify_variant_id="44818728616090",
+        last_price_paise=59900,
+        mandate_id="mdt_123",
+    )
+    mock_get_conn, mock_cur = _mock_db()
+    mock_cur.fetchone.return_value = None
+    with (
+        patch("app.orchestrator.get_conn", mock_get_conn),
+        patch("app.orchestrator.find_shelf_item", return_value=shelf) as mock_shelf,
+        patch(
+            "app.orchestrator.charge_mandate",
+            AsyncMock(
+                return_value=PaymentResult(
+                    status="awaiting_result",
+                    card_number="4111",
+                    cvv="123",
+                    expiry="12/2030",
+                    txn_ref_id="txn_1",
+                )
+            ),
+        ) as mock_charge,
+        patch("app.orchestrator.send_text", AsyncMock()) as mock_send,
+    ):
+        await handle_text_message(
+            settings.demo_user_phone, "chat1", "refill trimmer x1"
+        )
+
+    mock_shelf.assert_called_once_with(settings.demo_user_phone, "trimmer")
+    mock_charge.assert_awaited_once_with("mdt_123", 59900)
+    mock_send.assert_awaited_once_with(
+        "chat1", "On its way. ₹599, same as last time."
+    )
+
+
+async def test_handle_text_message_refill_over_cap_sends_card_network_decline():
+    from app.mandates import MandateCapExceeded
+    from app.orchestrator import handle_text_message
+    from app.shelf import ShelfItem
+
+    shelf = ShelfItem(
+        item_id="item-uuid-1",
+        brand="Bombay Shaving Company",
+        product="Power Play NXT Trimmer",
+        merchant="bombayshavingcompany.com",
+        shopify_variant_id="44818728616090",
+        last_price_paise=59900,
+        mandate_id="mdt_123",
+    )
+    mock_get_conn, mock_cur = _mock_db()
+    mock_cur.fetchone.return_value = None
+    with (
+        patch("app.orchestrator.get_conn", mock_get_conn),
+        patch("app.orchestrator.find_shelf_item", return_value=shelf) as mock_shelf,
+        patch(
+            "app.orchestrator.charge_mandate",
+            AsyncMock(side_effect=MandateCapExceeded(1_198_000, 100_000)),
+        ) as mock_charge,
+        patch("app.orchestrator.send_text", AsyncMock()) as mock_send,
+    ):
+        await handle_text_message(
+            settings.demo_user_phone, "chat1", "refill trimmer x20"
+        )
+
+    mock_shelf.assert_called_once_with(settings.demo_user_phone, "trimmer")
+    mock_charge.assert_awaited_once_with("mdt_123", 1_198_000)
+    mock_send.assert_awaited_once_with(
+        "chat1",
+        "That's ₹11980 — over the ₹1000 cap you set. "
+        "The card network declined it. Want to raise the cap?",
+    )
+    assert not any(
+        "INSERT INTO purchases" in c[0][0] for c in mock_cur.execute.call_args_list
+    )
