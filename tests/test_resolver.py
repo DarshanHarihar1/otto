@@ -66,8 +66,12 @@ async def test_confident_brand_routes_to_single_store_only():
     assert quote is not None
     assert quote.merchant == "beminimalist.co"
     assert quote.price_paise == 54900
-    mock_search.assert_awaited_once_with(
-        "beminimalist.co", "salicylic acid 2% serum"
+    assert {call.args[0] for call in mock_search.await_args_list} == {
+        "beminimalist.co"
+    }
+    assert mock_search.await_args_list[0].args == (
+        "beminimalist.co",
+        "salicylic acid 2% serum",
     )
 
 
@@ -195,31 +199,33 @@ async def test_quote_uses_luna_selected_shopify_variant_and_price():
 
 async def test_fanout_gets_winning_handle_from_its_source_domain():
     identification = _identification().model_copy(update={"confidence": 0.5})
+
+    async def search(domain: str, query: str) -> list[dict]:
+        if domain == "beminimalist.co":
+            return [
+                {
+                    "handle": "first-serum",
+                    "title": "Salicylic Acid Serum",
+                    "vendor": "Minimalist",
+                }
+            ]
+        return [
+            {
+                "handle": "winning-serum",
+                "title": "Salicylic Acid Serum 2%",
+                "vendor": "Minimalist",
+            }
+        ]
+
     with (
-        patch(
-            "app.resolver.search_suggest",
-            AsyncMock(
-                side_effect=[
-                    [
-                        {
-                            "handle": "first-serum",
-                            "title": "Salicylic Acid Serum",
-                            "vendor": "Minimalist",
-                        }
-                    ],
-                    [
-                        {
-                            "handle": "winning-serum",
-                            "title": "Salicylic Acid Serum 2%",
-                            "vendor": "Minimalist",
-                        }
-                    ],
-                ]
-            ),
-        ),
+        patch("app.resolver.search_suggest", side_effect=search),
         patch(
             "app.resolver.match_variant",
-            AsyncMock(return_value=_match().model_copy(update={"best_match_handle": "winning-serum"})),
+            AsyncMock(
+                return_value=_match().model_copy(
+                    update={"best_match_handle": "winning-serum"}
+                )
+            ),
         ),
         patch(
             "app.resolver.get_product",
@@ -350,3 +356,192 @@ async def test_tries_search_terms_individually_instead_of_concatenating():
         "salicylic acid 2% serum extra noise" in call.args[1]
         for call in mock_search.await_args_list
     )
+
+
+async def test_shop_around_returns_cheaper_same_brand_alt():
+    from app.resolver import Quote, shop_around
+
+    primary = Quote(
+        merchant="beminimalist.co",
+        shopify_variant_id="1",
+        price_paise=59900,
+        handle="sal-serum",
+    )
+    registry = Registry(
+        _by_category={
+            "Beauty & Personal Care/Skin Care": [
+                "beminimalist.co",
+                "clinikally.com",
+                "mamaearth.in",
+            ],
+        }
+    )
+    with (
+        patch(
+            "app.resolver.search_suggest",
+            AsyncMock(
+                return_value=[
+                    {
+                        "handle": "sal-serum-alt",
+                        "title": "Salicylic Acid 2% Serum",
+                        "vendor": "Minimalist",
+                    }
+                ]
+            ),
+        ) as mock_search,
+        patch(
+            "app.resolver.match_variant",
+            AsyncMock(
+                return_value=VariantMatch(
+                    best_match_handle="sal-serum-alt",
+                    similarity=0.9,
+                    shared_attributes=[],
+                    differences=[],
+                    one_line_pitch="match",
+                )
+            ),
+        ),
+        patch(
+            "app.resolver.get_product",
+            AsyncMock(return_value={"variants": [{"id": 99, "price": "549.00"}]}),
+        ),
+    ):
+        alt = await shop_around(_identification(), registry, primary)
+
+    assert alt is not None
+    assert alt.merchant == "clinikally.com"
+    assert alt.price_paise == 54900
+    # Prefer non-brand-slug stores; mamaearth may or may not be searched second.
+    assert mock_search.await_args_list[0].args[0] == "clinikally.com"
+
+
+async def test_shop_around_returns_none_when_alt_not_cheaper_enough():
+    from app.resolver import Quote, shop_around
+
+    primary = Quote(
+        merchant="beminimalist.co",
+        shopify_variant_id="1",
+        price_paise=59900,
+        handle="sal-serum",
+    )
+    registry = Registry(
+        _by_category={
+            "Beauty & Personal Care/Skin Care": [
+                "beminimalist.co",
+                "clinikally.com",
+            ],
+        }
+    )
+    with (
+        patch(
+            "app.resolver.search_suggest",
+            AsyncMock(
+                return_value=[
+                    {
+                        "handle": "sal-serum-alt",
+                        "title": "Salicylic Acid 2% Serum",
+                        "vendor": "Minimalist",
+                    }
+                ]
+            ),
+        ),
+        patch(
+            "app.resolver.match_variant",
+            AsyncMock(
+                return_value=VariantMatch(
+                    best_match_handle="sal-serum-alt",
+                    similarity=0.9,
+                    shared_attributes=[],
+                    differences=[],
+                    one_line_pitch="match",
+                )
+            ),
+        ),
+        patch(
+            "app.resolver.get_product",
+            AsyncMock(return_value={"variants": [{"id": 99, "price": "595.00"}]}),
+        ),
+    ):
+        alt = await shop_around(_identification(), registry, primary)
+
+    assert alt is None
+
+
+async def test_shop_around_rejects_other_brand_vendor():
+    from app.resolver import Quote, shop_around
+
+    primary = Quote(
+        merchant="beminimalist.co",
+        shopify_variant_id="1",
+        price_paise=59900,
+        handle="sal-serum",
+    )
+    registry = Registry(
+        _by_category={
+            "Beauty & Personal Care/Skin Care": [
+                "beminimalist.co",
+                "clinikally.com",
+            ],
+        }
+    )
+    with (
+        patch(
+            "app.resolver.search_suggest",
+            AsyncMock(
+                return_value=[
+                    {
+                        "handle": "other-serum",
+                        "title": "Salicylic Acid Serum",
+                        "vendor": "Dot & Key",
+                    }
+                ]
+            ),
+        ),
+        patch("app.resolver.match_variant", AsyncMock()) as mock_match,
+        patch("app.resolver.get_product", AsyncMock()) as mock_get,
+    ):
+        alt = await shop_around(_identification(), registry, primary)
+
+    assert alt is None
+    mock_match.assert_not_awaited()
+    mock_get.assert_not_awaited()
+
+
+async def test_search_domain_merges_hits_across_queries():
+    """First query often returns a multipack; later queries find the single."""
+    from app.resolver import _search_domain
+
+    async def search(domain: str, query: str) -> list[dict]:
+        if "236 ml" in query:
+            return [
+                {
+                    "handle": "wash-pack-of-3",
+                    "title": "Body Wash Pack of 3",
+                    "vendor": "Chemist at Play",
+                }
+            ]
+        if query == "Brightening Body Wash":
+            return [
+                {
+                    "handle": "brightening-body-wash",
+                    "title": "Brightening Body Wash",
+                    "vendor": "Chemist at Play",
+                }
+            ]
+        return []
+
+    with patch("app.resolver.search_suggest", side_effect=search) as mock_search:
+        domain, results = await _search_domain(
+            "innovist.com",
+            [
+                "Chemist at Play Brightening Body Wash 3% 236 ml",
+                "Brightening Body Wash",
+            ],
+        )
+
+    assert domain == "innovist.com"
+    assert [r["handle"] for r in results] == [
+        "wash-pack-of-3",
+        "brightening-body-wash",
+    ]
+    assert mock_search.await_count == 2

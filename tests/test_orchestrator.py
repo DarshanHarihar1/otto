@@ -359,12 +359,16 @@ async def test_identified_item_reaches_quoted_with_shopify_price():
         patch("app.orchestrator.send_typing", AsyncMock()),
         patch("app.orchestrator.compose_and_send", AsyncMock()),
         patch("app.orchestrator.resolve", AsyncMock(return_value=quote)),
+        patch("app.orchestrator.shop_around", AsyncMock(return_value=None)),
         patch("app.orchestrator.send_text", AsyncMock()) as mock_send,
     ):
         await handle_photo_message(settings.demo_user_phone, "chat1", "https://x/y.jpg")
 
-    quoted_sql, quoted_params = mock_cur.execute.call_args_list[-1][0]
-    assert "state = 'QUOTED'" in quoted_sql
+    quoted_sql, quoted_params = next(
+        call[0]
+        for call in mock_cur.execute.call_args_list
+        if "state = 'QUOTED'" in call[0][0]
+    )
     assert quoted_params == (
         "beminimalist.co",
         "123",
@@ -755,4 +759,170 @@ async def test_handle_text_message_refill_over_cap_sends_card_network_decline():
     )
     assert not any(
         "INSERT INTO purchases" in c[0][0] for c in mock_cur.execute.call_args_list
+    )
+
+
+async def test_quoted_item_offers_cheaper_alt_when_shop_around_finds_one():
+    from app.orchestrator import handle_photo_message
+
+    fake_result = Identification(
+        object_type="bottle",
+        brand="Minimalist",
+        product="Serum",
+        variant="30ml",
+        category="Beauty & Personal Care/Skin Care",
+        search_terms=["serum"],
+        confidence=0.95,
+        reasoning="clear",
+        missing_info=None,
+        suggested_photo=None,
+    )
+    quote = Quote(
+        merchant="beminimalist.co",
+        shopify_variant_id="123",
+        price_paise=59900,
+        handle="serum",
+    )
+    alt = Quote(
+        merchant="clinikally.com",
+        shopify_variant_id="999",
+        price_paise=54900,
+        handle="serum-alt",
+    )
+    mock_get_conn, mock_cur = _mock_db()
+    mock_cur.fetchone.side_effect = [("user-uuid-1",), None]
+    with (
+        patch("app.orchestrator.get_conn", mock_get_conn),
+        patch("app.orchestrator.download_media", AsyncMock(return_value=b"bytes")),
+        patch("app.orchestrator.archive_photo", return_value="path.jpg"),
+        patch("app.orchestrator.identify", AsyncMock(return_value=fake_result)),
+        patch("app.orchestrator.send_typing", AsyncMock()),
+        patch("app.orchestrator.compose_and_send", AsyncMock()),
+        patch("app.orchestrator.resolve", AsyncMock(return_value=quote)),
+        patch("app.orchestrator.shop_around", AsyncMock(return_value=alt)),
+        patch("app.orchestrator.send_text", AsyncMock()) as mock_send,
+    ):
+        await handle_photo_message(settings.demo_user_phone, "chat1", "https://x/y.jpg")
+
+    assert mock_send.await_args_list[0].args == (
+        "chat1",
+        "found it — Minimalist Serum, 30ml. ₹599. want it?",
+    )
+    assert mock_send.await_args_list[1].args == (
+        "chat1",
+        "same thing's ₹50 cheaper at clinikally — say switch?",
+    )
+    assert any(
+        "cheaper_alt" in call[0][0] for call in mock_cur.execute.call_args_list
+    )
+
+
+async def test_switch_applies_cheaper_alt_then_checkouts_at_alt_price():
+    from app.orchestrator import handle_text_message
+    from app.prava import Session
+
+    alt_payload = {
+        "merchant": "clinikally.com",
+        "shopify_variant_id": "999",
+        "price_paise": 54900,
+        "handle": "serum-alt",
+    }
+    mock_get_conn, mock_cur = _mock_db()
+    mock_cur.fetchone.side_effect = [
+        None,  # no SUBSTITUTE_OFFERED
+        ("item-uuid-1", alt_payload),  # cheaper_alt row
+        (
+            "item-uuid-1",
+            "clinikally.com",
+            "999",
+            54900,
+            "Minimalist",
+            "Serum",
+        ),  # checkout claim
+    ]
+    session = Session(
+        session_id="prava-session-1", approval_url="https://prava.example/approve"
+    )
+    with (
+        patch("app.orchestrator.get_conn", mock_get_conn),
+        patch(
+            "app.orchestrator.create_session",
+            AsyncMock(return_value=session),
+        ) as mock_create_session,
+        patch("app.orchestrator.send_text", AsyncMock()) as mock_send,
+        patch(
+            "app.routes.prava_callback._finalize_payment",
+            AsyncMock(),
+        ),
+    ):
+        await handle_text_message(settings.demo_user_phone, "chat1", "switch")
+
+    mock_create_session.assert_awaited_once_with(
+        amount_paise=54900,
+        merchant="clinikally.com",
+        line_items=[
+            {
+                "name": "Minimalist Serum",
+                "shopify_variant_id": "999",
+                "price": 549.0,
+            }
+        ],
+    )
+    assert any(
+        "shopify_variant_id = %s" in call[0][0]
+        and call[0][1][0] == "clinikally.com"
+        for call in mock_cur.execute.call_args_list
+    )
+    assert mock_send.await_args_list[0].args == (
+        "chat1",
+        "cool, ₹549. approve here (one tap):",
+    )
+
+
+async def test_yes_keeps_primary_merchant_when_cheaper_alt_exists():
+    from app.orchestrator import handle_text_message
+    from app.prava import Session
+
+    mock_get_conn, mock_cur = _mock_db()
+    mock_cur.fetchone.side_effect = [
+        None,  # no SUBSTITUTE_OFFERED
+        (
+            "item-uuid-1",
+            "beminimalist.co",
+            "123",
+            59900,
+            "Minimalist",
+            "Serum",
+        ),
+    ]
+    session = Session(
+        session_id="prava-session-1", approval_url="https://prava.example/approve"
+    )
+    with (
+        patch("app.orchestrator.get_conn", mock_get_conn),
+        patch(
+            "app.orchestrator.create_session",
+            AsyncMock(return_value=session),
+        ) as mock_create_session,
+        patch("app.orchestrator.send_text", AsyncMock()),
+        patch(
+            "app.routes.prava_callback._finalize_payment",
+            AsyncMock(),
+        ),
+    ):
+        await handle_text_message(settings.demo_user_phone, "chat1", "yes")
+
+    mock_create_session.assert_awaited_once_with(
+        amount_paise=59900,
+        merchant="beminimalist.co",
+        line_items=[
+            {
+                "name": "Minimalist Serum",
+                "shopify_variant_id": "123",
+                "price": 599.0,
+            }
+        ],
+    )
+    assert not any(
+        "cheaper_alt" in call[0][0] for call in mock_cur.execute.call_args_list
     )
