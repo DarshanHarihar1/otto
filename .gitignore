@@ -8,3 +8,6 @@ data/merchants.csv
 
 .worktrees/
 .superpowers/
+docs/
+.tokensave/
+.claude/
