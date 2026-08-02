@@ -79,5 +79,4 @@ app/           FastAPI app, orchestrator, vision, resolver, Prava, shelf
 migrations/    SQL schema
 scripts/       Merchant probe helper
 tests/         pytest suite
-otto-architecture.md   Design notes
 ```
