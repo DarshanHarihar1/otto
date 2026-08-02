@@ -14,12 +14,80 @@ def test_callback_acks_immediately():
     assert "Payment processed" in resp.text
 
 
-def test_callback_acks_without_session_id():
+def test_callback_acks_without_session_id_finalizes_latest_open():
     # Prava hosted mode redirects to callback_url with no query params.
-    resp = client.get("/prava/callback")
+    with (
+        patch(
+            "app.routes.prava_callback._latest_open_checkout_session_id",
+            return_value="ses_latest",
+        ),
+        patch("app.routes.prava_callback._finalize_payment", AsyncMock()) as mock_fin,
+    ):
+        resp = client.get("/prava/callback")
 
     assert resp.status_code == 200
     assert "Payment processed" in resp.text
+    # BackgroundTasks run after response in TestClient
+    mock_fin.assert_awaited_once_with("ses_latest")
+
+
+async def test_finalize_payment_recovers_failed_when_credentials_ready():
+    from app.routes.prava_callback import _finalize_payment
+
+    mock_cur = MagicMock()
+    mock_cur.fetchone.side_effect = [
+        (
+            "item-uuid-1",
+            "FAILED",
+            "+919900475117",
+            "Minimalist",
+            "Serum",
+            "FAILED",
+            54900,
+            "beminimalist.co",
+        ),
+        ("chat-uuid-1",),
+    ]
+    mock_cursor_cm = MagicMock()
+    mock_cursor_cm.__enter__.return_value = mock_cur
+    mock_cursor_cm.__exit__.return_value = False
+    mock_conn = MagicMock()
+    mock_conn.cursor.return_value = mock_cursor_cm
+    mock_conn_cm = MagicMock()
+    mock_conn_cm.__enter__.return_value = mock_conn
+    mock_conn_cm.__exit__.return_value = False
+
+    with (
+        patch(
+            "app.routes.prava_callback.get_conn",
+            return_value=mock_conn_cm,
+        ),
+        patch(
+            "app.routes.prava_callback.poll_payment_result",
+            AsyncMock(
+                return_value=PaymentResult(
+                    status="awaiting_result",
+                    card_number="4111111111111111",
+                    cvv="123",
+                    expiry="01/2030",
+                    txn_ref_id="txn-1",
+                )
+            ),
+        ),
+        patch("app.routes.prava_callback.report_status", AsyncMock()),
+        patch(
+            "app.routes.prava_callback._offer_mandate_setup",
+            AsyncMock(),
+        ),
+        patch("app.routes.prava_callback.send_text", AsyncMock()) as mock_send,
+    ):
+        await _finalize_payment("prava-session-1")
+
+    calls = mock_cur.execute.call_args_list
+    assert calls[1][0][1] == ("PAID", "item-uuid-1")
+    mock_send.assert_awaited_once_with(
+        "chat-uuid-1", "ordered ✅ Serum. saved on your shelf"
+    )
 
 
 async def test_finalize_payment_marks_ordered_and_notifies_saved_chat():

@@ -328,8 +328,9 @@ async def handle_text_message(user_phone: str, chat_id: str, text: str) -> None:
     )
     await send_text(chat_id, session.approval_url)
 
-    # Prava's hosted redirect often hits callback_url with no session_id.
-    # Poll payment-result here (per REST walkthrough) instead of relying on it.
+    # Poll in the background so a slow passkey isn't racing a 90s wait that can
+    # mark FAILED before the user finishes. Callback (with or without
+    # session_id) can also complete the same session.
     from app.routes.prava_callback import _finalize_payment
 
-    await _finalize_payment(session.session_id)
+    asyncio.create_task(_finalize_payment(session.session_id))

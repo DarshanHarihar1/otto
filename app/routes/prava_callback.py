@@ -112,6 +112,21 @@ async def _offer_mandate_setup(
     await _poll_mandate_setup(mandate_session.session_id)
 
 
+def _latest_open_checkout_session_id() -> str | None:
+    """Prava hosted redirect often hits callback_url with no session_id."""
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            """SELECT prava_session_id FROM purchases
+               WHERE prava_session_id IS NOT NULL
+                 AND status IN ('AWAITING_APPROVAL', 'FAILED')
+                 AND created_at > now() - interval '2 hours'
+               ORDER BY created_at DESC
+               LIMIT 1"""
+        )
+        row = cur.fetchone()
+    return row[0] if row else None
+
+
 async def _finalize_payment(session_id: str) -> None:
     try:
         with get_conn() as conn, conn.cursor() as cur:
@@ -147,9 +162,9 @@ async def _finalize_payment(session_id: str) -> None:
             logger.exception("Mandate setup attach failed for %s", session_id)
         return
 
-    # Idempotent: Prava redirect may omit session_id, so we also poll after
-    # sending the approval link — both paths can race.
-    if purchase_status in {"PAID", "FAILED"} or item_state in {"ORDERED", "FAILED"}:
+    # Idempotent success. FAILED is recoverable: poll can race ahead of passkey
+    # and mark bounce while Prava later returns credentials on the same session.
+    if purchase_status == "PAID" or item_state == "ORDERED":
         return
 
     result: PaymentResult | None = None
@@ -174,7 +189,10 @@ async def _finalize_payment(session_id: str) -> None:
         logger.exception("Could not finalize Prava session %s", session_id)
         # Network / timeout while waiting for approval: leave AWAITING_APPROVAL
         # so the user can still complete the passkey (callback may finish it).
+        # Never downgrade an already-FAILED row again.
         if result is None or result.status != "failed":
+            return
+        if purchase_status == "FAILED" or item_state == "FAILED":
             return
         if result.txn_ref_id:
             try:
@@ -230,9 +248,9 @@ async def prava_callback(
     session: str | None = None,
 ):
     # Prava hosted checkout redirects to callback_url as-is (often with no
-    # query params). Finalization is primarily driven by post-link polling;
-    # if a session id is present we still finalize here.
-    sid = session_id or session
+    # query params). Fall back to the latest open checkout session so a
+    # successful passkey still finalizes after a premature bounce.
+    sid = session_id or session or _latest_open_checkout_session_id()
     if sid:
         background_tasks.add_task(_finalize_payment, sid)
     return HTMLResponse(
