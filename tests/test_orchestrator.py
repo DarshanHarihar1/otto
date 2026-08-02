@@ -430,7 +430,7 @@ async def test_handle_text_message_creates_session_and_sends_price_then_approval
     with (
         patch("app.orchestrator.get_conn", mock_get_conn),
         patch(
-            "app.orchestrator.create_session_with_mandate",
+            "app.orchestrator.create_session",
             AsyncMock(return_value=session),
         ) as mock_create_session,
         patch("app.orchestrator.send_text", AsyncMock()) as mock_send,
@@ -451,7 +451,6 @@ async def test_handle_text_message_creates_session_and_sends_price_then_approval
                 "price": 549.0,
             }
         ],
-        cap_paise=100_000,
     )
     assert mock_get_conn.call_count == 2
     calls = mock_cur.execute.call_args_list
@@ -494,7 +493,7 @@ async def test_handle_text_message_only_creates_one_session_when_second_yes_lose
     with (
         patch("app.orchestrator.get_conn", mock_get_conn),
         patch(
-            "app.orchestrator.create_session_with_mandate",
+            "app.orchestrator.create_session",
             AsyncMock(return_value=session),
         ) as mock_create_session,
         patch("app.orchestrator.send_text", AsyncMock()),

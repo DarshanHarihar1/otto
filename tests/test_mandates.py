@@ -35,11 +35,12 @@ async def test_create_session_with_mandate_posts_checkout_intent_and_cap():
     import json
 
     payload = json.loads(body)
-    assert payload["mandate_setup"]["intent"] == "checkout"
+    assert payload["mandate_setup"]["intent"] == "mandate_setup"
     assert payload["mandate_setup"]["merchant_scope"] == "listed"
     assert payload["total_amount"] == "1000.00"  # max(599, 1000) authorized cap
     assert payload["currency"] == "INR"
     assert payload["user_email"] == "demo@example.com"
+    assert session.authorize_only is True
 
 
 @respx.mock

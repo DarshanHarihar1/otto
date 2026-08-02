@@ -34,6 +34,8 @@ async def test_finalize_payment_marks_ordered_and_notifies_saved_chat():
             "Minimalist",
             "Serum",
             "AWAITING_APPROVAL",
+            54900,
+            "beminimalist.co",
         ),
         ("chat-uuid-1",),
     ]
@@ -65,9 +67,9 @@ async def test_finalize_payment_marks_ordered_and_notifies_saved_chat():
         ),
         patch("app.routes.prava_callback.report_status", AsyncMock()),
         patch(
-            "app.routes.prava_callback.get_mandate_id_for_session",
-            AsyncMock(return_value="mdt_1"),
-        ),
+            "app.routes.prava_callback._offer_mandate_setup",
+            AsyncMock(),
+        ) as mock_offer,
         patch("app.routes.prava_callback.send_text", AsyncMock()) as mock_send,
     ):
         await _finalize_payment("prava-session-1")
@@ -79,12 +81,11 @@ async def test_finalize_payment_marks_ordered_and_notifies_saved_chat():
     assert "state = 'ORDERED'" in calls[3][0][0]
     assert "label = %s" in calls[3][0][0]
     assert calls[3][0][1] == ("Minimalist Serum", "item-uuid-1")
-    assert "mandate_id = %s" in calls[4][0][0]
-    assert calls[4][0][1] == ("mdt_1", "item-uuid-1")
-    assert "kind = 'chat_ref'" in calls[5][0][0]
+    assert "kind = 'chat_ref'" in calls[4][0][0]
     mock_send.assert_awaited_once_with(
         "chat-uuid-1", "Ordered ✅ · Minimalist Serum · saved to your shelf"
     )
+    mock_offer.assert_awaited_once()
 
 
 async def test_finalize_payment_fails_without_approving_non_ready_result():
@@ -99,6 +100,8 @@ async def test_finalize_payment_fails_without_approving_non_ready_result():
             "Minimalist",
             "Serum",
             "AWAITING_APPROVAL",
+            54900,
+            "beminimalist.co",
         ),
         ("chat-uuid-1",),
     ]

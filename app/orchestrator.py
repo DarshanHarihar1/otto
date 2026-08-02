@@ -6,8 +6,8 @@ import uuid
 from app.db import get_conn
 from app.registry import load_registry
 from app.media import archive_photo, download_media
-from app.mandates import DEFAULT_MANDATE_CAP_PAISE, charge_mandate
-from app.prava import create_session_with_mandate, get_mandate_id_for_session
+from app.mandates import charge_mandate
+from app.prava import create_session
 from app.reply_composer import compose_and_send, send_typing
 from app.resolver import resolve
 from app.routes.webhook import send_text
@@ -159,14 +159,23 @@ async def handle_text_message(user_phone: str, chat_id: str, text: str) -> None:
                 shelf_item.mandate_id, shelf_item.last_price_paise
             )
             if result.status == "failed" or not result.credentials_ready:
-                raise ValueError(f"Mandate charge not ready (status={result.status!r})")
-        except Exception:
+                msg = result.error_message or result.status
+                raise ValueError(msg)
+        except Exception as exc:
             logger.exception(
                 "Mandate charge failed for item %s mandate %s",
                 shelf_item.item_id,
                 shelf_item.mandate_id,
             )
-            await send_text(chat_id, "Couldn't refill that one — try again in a bit?")
+            detail = str(exc)
+            if "payment cycle" in detail.lower() or "already made" in detail.lower():
+                await send_text(
+                    chat_id,
+                    "Visa only allows one charge per month on this mandate — "
+                    "that slot was already used. Refill opens next cycle.",
+                )
+            else:
+                await send_text(chat_id, "Couldn't refill that one — try again in a bit?")
             return
         with get_conn() as conn, conn.cursor() as cur:
             cur.execute(
@@ -205,7 +214,7 @@ async def handle_text_message(user_phone: str, chat_id: str, text: str) -> None:
 
     item_id, merchant, variant_id, price_paise, brand, product = row
     try:
-        session = await create_session_with_mandate(
+        session = await create_session(
             amount_paise=price_paise,
             merchant=merchant,
             line_items=[
@@ -215,7 +224,6 @@ async def handle_text_message(user_phone: str, chat_id: str, text: str) -> None:
                     "price": price_paise / 100,
                 }
             ],
-            cap_paise=DEFAULT_MANDATE_CAP_PAISE,
         )
     except Exception:
         logger.exception("Could not create Prava session for item %s", item_id)

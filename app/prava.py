@@ -16,6 +16,7 @@ _POLL_ATTEMPTS = 30  # ~90s — Prava SDK skill guidance
 class Session(BaseModel):
     session_id: str
     approval_url: str
+    authorize_only: bool = False
 
 
 class PaymentResult(BaseModel):
@@ -24,6 +25,7 @@ class PaymentResult(BaseModel):
     cvv: str | None = None
     expiry: str | None = None
     txn_ref_id: str | None = None
+    error_message: str | None = None
 
     @property
     def credentials_ready(self) -> bool:
@@ -109,12 +111,14 @@ async def create_session(
 async def create_session_with_mandate(
     amount_paise: int, merchant: str, line_items: list[dict], cap_paise: int
 ) -> Session:
-    """First purchase that also creates a standing mandate (docs: intent=checkout).
+    """Set up a standing mandate (docs: intent=mandate_setup, authorize-only).
 
-    total_amount is the authorized per-charge cap (max of purchase + cap).
+    Does not mint checkout credentials — first spend is via charge_mandate after
+    passkey approval. Using intent=checkout burns Visa's one-charge-per-cycle
+    on the first purchase and blocks same-cycle refills.
     """
     mandate_setup = {
-        "intent": "checkout",
+        "intent": "mandate_setup",
         "recurring_frequency": "monthly",
         "merchant_scope": "listed",
         "max_charges": 12,
@@ -134,7 +138,11 @@ async def create_session_with_mandate(
         )
         response.raise_for_status()
         data = response.json()
-    return Session(session_id=data["session_id"], approval_url=data["iframe_url"])
+    return Session(
+        session_id=data["session_id"],
+        approval_url=data["iframe_url"],
+        authorize_only=bool(data.get("authorizeOnly", True)),
+    )
 
 
 async def get_mandate_id_for_session(session_id: str) -> str | None:
@@ -195,6 +203,7 @@ async def charge_mandate(mandate_id: str, amount_paise: int) -> PaymentResult:
             else None
         ),
         txn_ref_id=data.get("transactionId"),
+        error_message=data.get("errorMessage") or data.get("errorCode"),
     )
 
 
