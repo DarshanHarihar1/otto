@@ -45,3 +45,9 @@ settings = Settings(
     demo_user_phone=_require("DEMO_USER_PHONE"),
     confidence_threshold=float(os.environ.get("CONFIDENCE_THRESHOLD", "0.80")),
 )
+
+
+def public_base_url() -> str:
+    """Live read so tunnel URL updates don't require a process restart."""
+    load_dotenv(override=True)
+    return os.environ.get("PUBLIC_BASE_URL", "") or settings.public_base_url

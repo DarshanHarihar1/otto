@@ -27,22 +27,27 @@ async def _attach_mandate_from_setup_session(session_id: str) -> bool:
     """Complete an authorize-only mandate_setup session: save mandate_id, no charge."""
     with get_conn() as conn, conn.cursor() as cur:
         cur.execute(
-            """SELECT p.item_id, i.brand, i.product, p.status, i.mandate_id, p.created_at
-               FROM purchases p JOIN items i ON i.id = p.item_id
+            """SELECT p.item_id, i.brand, i.product, p.status, i.mandate_id, p.created_at,
+                      u.phone
+               FROM purchases p
+               JOIN items i ON i.id = p.item_id
+               JOIN users u ON u.id = i.user_id
                WHERE p.prava_session_id = %s""",
             (session_id,),
         )
         row = cur.fetchone()
     if row is None:
         return False
-    item_id, brand, product, purchase_status, existing_mandate, created_at = row
+    item_id, brand, product, purchase_status, existing_mandate, created_at, phone = row
     if existing_mandate and purchase_status == "MANDATE_READY":
         return True
     if purchase_status not in {"MANDATE_SETUP", "AWAITING_APPROVAL"}:
         return False
 
     created_after = created_at.isoformat() if created_at is not None else None
-    mandate_id = await get_mandate_id_for_customer(created_after_iso=created_after)
+    mandate_id = await get_mandate_id_for_customer(
+        created_after_iso=created_after, user_phone=phone
+    )
     if not mandate_id:
         return False
 
@@ -89,6 +94,8 @@ async def _offer_mandate_setup(
     product: str,
     merchant: str,
     price_paise: int,
+    *,
+    user_phone: str | None = None,
 ) -> None:
     """After first checkout, start authorize-only mandate setup (no Visa cycle burn)."""
     mandate_session = await create_session_with_mandate(
@@ -96,6 +103,7 @@ async def _offer_mandate_setup(
         merchant=merchant,
         line_items=[{"name": f"{brand} {product}", "price": price_paise / 100}],
         cap_paise=DEFAULT_MANDATE_CAP_PAISE,
+        user_phone=user_phone,
     )
     with get_conn() as conn, conn.cursor() as cur:
         cur.execute(
@@ -147,7 +155,7 @@ async def _finalize_payment(session_id: str) -> None:
     (
         item_id,
         item_state,
-        _phone,
+        phone,
         brand,
         product,
         purchase_status,
@@ -231,7 +239,13 @@ async def _finalize_payment(session_id: str) -> None:
         if price_paise and merchant:
             try:
                 await _offer_mandate_setup(
-                    item_id, chat_id, brand, product, merchant, price_paise
+                    item_id,
+                    chat_id,
+                    brand,
+                    product,
+                    merchant,
+                    price_paise,
+                    user_phone=phone,
                 )
             except Exception:
                 logger.exception(

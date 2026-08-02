@@ -4,6 +4,7 @@ import logging
 import re
 import uuid
 
+from app.categories import _registry_path
 from app.db import get_conn
 from app.registry import load_registry
 from app.media import archive_photo, download_media
@@ -19,7 +20,20 @@ from app.vision import identify
 
 logger = logging.getLogger(__name__)
 
-_REGISTRY = load_registry()
+_REGISTRY = load_registry(_registry_path())
+
+
+def _ensure_user(user_phone: str) -> str:
+    """Create the user on first contact — Linq can deliver any sender to our bot."""
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            """INSERT INTO users (phone)
+               VALUES (%s)
+               ON CONFLICT (phone) DO UPDATE SET phone = EXCLUDED.phone
+               RETURNING id""",
+            (user_phone,),
+        )
+        return str(cur.fetchone()[0])
 
 
 async def handle_photo_message(
@@ -31,12 +45,8 @@ async def handle_photo_message(
         except Exception:
             logger.exception("Could not start typing indicator for chat %s", chat_id)
 
+        user_id = _ensure_user(user_phone)
         with get_conn() as conn, conn.cursor() as cur:
-            cur.execute("SELECT id FROM users WHERE phone = %s", (user_phone,))
-            row = cur.fetchone()
-            if row is None:
-                raise ValueError(f"No user found for phone {user_phone!r}")
-            user_id = row[0]
             cur.execute(
                 """SELECT id FROM items
                    WHERE user_id = %s AND state = 'NEEDS_ANGLE'
@@ -188,6 +198,19 @@ async def handle_photo_message(
 _SWITCH_PHRASES = frozenset({"switch", "cheaper", "buy cheaper", "switch to cheaper"})
 
 
+def _wants_cheaper_switch(text_lower: str) -> bool:
+    """Accept exact phrases and casual replies like 'yeah lets switch.'"""
+    cleaned = re.sub(r"[^\w\s]", " ", text_lower)
+    cleaned = " ".join(cleaned.split())
+    if cleaned in _SWITCH_PHRASES:
+        return True
+    if "switch" in cleaned.split():
+        return True
+    if cleaned in {"buy cheaper", "get cheaper"}:
+        return True
+    return False
+
+
 async def _begin_checkout(user_phone: str, chat_id: str) -> None:
     """Claim latest QUOTED item and open a Prava approval session."""
     with get_conn() as conn, conn.cursor() as cur:
@@ -223,6 +246,7 @@ async def _begin_checkout(user_phone: str, chat_id: str) -> None:
                     "price": price_paise / 100,
                 }
             ],
+            user_phone=user_phone,
         )
     except Exception:
         logger.exception("Could not create Prava session for item %s", item_id)
@@ -299,6 +323,7 @@ async def _switch_to_cheaper_alt(user_phone: str, chat_id: str) -> bool:
 
 async def handle_text_message(user_phone: str, chat_id: str, text: str) -> None:
     text_lower = text.strip().lower()
+    _ensure_user(user_phone)
 
     with get_conn() as conn, conn.cursor() as cur:
         cur.execute(
@@ -397,14 +422,16 @@ async def handle_text_message(user_phone: str, chat_id: str, text: str) -> None:
         )
         return
 
-    if text_lower in _SWITCH_PHRASES:
+    if _wants_cheaper_switch(text_lower):
         switched = await _switch_to_cheaper_alt(user_phone, chat_id)
         if not switched:
             return
         await _begin_checkout(user_phone, chat_id)
         return
 
-    if text_lower not in ("yes", "buy", "buy it", "confirm"):
+    yes_cleaned = re.sub(r"[^\w\s]", " ", text_lower)
+    yes_cleaned = " ".join(yes_cleaned.split())
+    if yes_cleaned not in ("yes", "yeah", "yep", "buy", "buy it", "confirm", "want it"):
         return
 
     await _begin_checkout(user_phone, chat_id)

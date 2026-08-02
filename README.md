@@ -43,11 +43,13 @@ Apply schema once:
 psql "$SUPABASE_DB_URL" -f migrations/001_init.sql
 ```
 
-Optional: probe merchants into `data/merchants.csv` (gitignored):
+Optional: refresh verified merchants:
 
 ```bash
 python scripts/probe_merchants.py
 ```
+
+`data/merchants.csv` is committed so deploys have a working registry.
 
 ## Run locally
 
@@ -55,9 +57,13 @@ python scripts/probe_merchants.py
 uvicorn app.main:app --reload --port 8000
 ```
 
-Expose with a tunnel and point Linq’s webhook at `{PUBLIC_BASE_URL}/webhook/linq`. Keep `PUBLIC_BASE_URL` in `.env` in sync with the tunnel URL.
+Expose with a tunnel (or deploy to Northflank) and point Linq’s webhook at `{PUBLIC_BASE_URL}/webhook/linq`. Keep `PUBLIC_BASE_URL` in `.env` in sync with the public HTTPS base (no trailing slash).
 
 Health check: `GET /health`
+
+## Deploy (Northflank)
+
+Combined service builds from the root `Dockerfile`, exposes port `8000`, and probes `GET /health`. Set runtime secrets from `.env.example`, then set `PUBLIC_BASE_URL` to the service’s public `*.code.run` URL and point the Linq webhook at `{PUBLIC_BASE_URL}/webhook/linq`.
 
 ## Environment
 
@@ -70,7 +76,7 @@ See `.env.example`. Required:
 | `PRAVA_*` | Sandbox sessions + callbacks |
 | `PUBLIC_BASE_URL` | Tunnel URL for Linq + Prava callbacks |
 | `SUPABASE_DB_URL` | Postgres |
-| `DEMO_USER_PHONE` | Phone allowed for demos |
+| `DEMO_USER_PHONE` | Fallback Prava customer id seed phone (users auto-created on first message) |
 
 ## Tests
 

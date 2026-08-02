@@ -1,0 +1,17 @@
+.git
+.venv
+.env
+*.env
+__pycache__
+*.pyc
+*.egg-info
+.pytest_cache
+.worktrees
+.superpowers
+.tokensave
+.claude
+docs
+tests
+scripts
+*.md
+.DS_Store

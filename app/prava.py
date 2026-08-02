@@ -6,7 +6,7 @@ from decimal import Decimal
 import httpx
 from pydantic import BaseModel
 
-from app.config import settings
+from app.config import public_base_url, settings
 
 _TIMEOUT_SECONDS = 15
 _POLL_INTERVAL_SECONDS = 3
@@ -45,8 +45,9 @@ def _merchant_url(merchant: str) -> str:
     return f"https://{slug}.example.com"
 
 
-def _customer_id() -> str:
-    return f"otto_{settings.demo_user_phone.lstrip('+')}"
+def _customer_id(user_phone: str | None = None) -> str:
+    phone = (user_phone or settings.demo_user_phone).lstrip("+")
+    return f"otto_{phone}"
 
 
 def _product_details(line_items: list[dict]) -> list[dict]:
@@ -67,17 +68,18 @@ def _session_payload(
     *,
     mandate_setup: dict | None = None,
     authorized_amount_paise: int | None = None,
+    user_phone: str | None = None,
 ) -> dict:
     total_paise = (
         amount_paise if authorized_amount_paise is None else authorized_amount_paise
     )
     payload: dict = {
-        "user_id": _customer_id(),
+        "user_id": _customer_id(user_phone),
         "user_email": "demo@example.com",
         "total_amount": f"{Decimal(total_paise) / Decimal(100):.2f}",
         "currency": "INR",
         "integration_type": "full_checkout",
-        "callback_url": f"{settings.public_base_url.rstrip('/')}/prava/callback",
+        "callback_url": f"{public_base_url().rstrip('/')}/prava/callback",
         "purchase_context": [
             {
                 "merchant_details": {
@@ -95,13 +97,19 @@ def _session_payload(
 
 
 async def create_session(
-    amount_paise: int, merchant: str, line_items: list[dict]
+    amount_paise: int,
+    merchant: str,
+    line_items: list[dict],
+    *,
+    user_phone: str | None = None,
 ) -> Session:
     async with httpx.AsyncClient(timeout=_TIMEOUT_SECONDS) as client:
         response = await client.post(
             f"{settings.prava_base_url}/v1/sessions",
             headers=_headers(),
-            json=_session_payload(amount_paise, merchant, line_items),
+            json=_session_payload(
+                amount_paise, merchant, line_items, user_phone=user_phone
+            ),
         )
         response.raise_for_status()
         data = response.json()
@@ -109,7 +117,12 @@ async def create_session(
 
 
 async def create_session_with_mandate(
-    amount_paise: int, merchant: str, line_items: list[dict], cap_paise: int
+    amount_paise: int,
+    merchant: str,
+    line_items: list[dict],
+    cap_paise: int,
+    *,
+    user_phone: str | None = None,
 ) -> Session:
     """Set up a standing mandate (docs: intent=mandate_setup, authorize-only).
 
@@ -129,6 +142,7 @@ async def create_session_with_mandate(
         line_items,
         mandate_setup=mandate_setup,
         authorized_amount_paise=max(amount_paise, cap_paise),
+        user_phone=user_phone,
     )
     async with httpx.AsyncClient(timeout=_TIMEOUT_SECONDS) as client:
         response = await client.post(
@@ -146,7 +160,9 @@ async def create_session_with_mandate(
 
 
 async def get_mandate_id_for_customer(
-    *, created_after_iso: str | None = None
+    *,
+    created_after_iso: str | None = None,
+    user_phone: str | None = None,
 ) -> str | None:
     """Newest active standing (non-one_time) mandate for the Otto customer.
 
@@ -157,7 +173,7 @@ async def get_mandate_id_for_customer(
         response = await client.get(
             f"{settings.prava_base_url}/v1/mandates",
             headers=_headers(),
-            params={"customer_id": _customer_id()},
+            params={"customer_id": _customer_id(user_phone)},
         )
         response.raise_for_status()
         data = response.json()

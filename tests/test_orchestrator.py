@@ -59,7 +59,7 @@ async def test_handle_photo_message_creates_and_updates_item():
         )
 
     assert item_id
-    assert mock_get_conn.call_count == 3
+    assert mock_get_conn.call_count == 4
     mock_download.assert_awaited_once_with("https://x/y.jpg")
     mock_archive.assert_called_once_with(item_id, b"bytes")
     assert mock_identify.await_args.args[0] == b"bytes"
@@ -67,7 +67,7 @@ async def test_handle_photo_message_creates_and_updates_item():
     mock_compose.assert_awaited_once_with("chat1", ItemState.IDENTIFIED, fake_result)
 
     calls = mock_cur.execute.call_args_list
-    assert calls[0][0][0].strip().startswith("SELECT id FROM users")
+    assert "INSERT INTO users" in calls[0][0][0]
     assert calls[0][0][1] == (settings.demo_user_phone,)
 
     open_item_sql, open_item_params = calls[1][0]
@@ -212,7 +212,7 @@ async def test_handle_photo_message_reuses_open_needs_angle_item():
         )
 
     assert item_id == existing_item_id
-    assert mock_get_conn.call_count == 3
+    assert mock_get_conn.call_count == 4
     mock_download.assert_awaited_once_with("https://x/y.jpg")
     mock_archive.assert_called_once_with(existing_item_id, b"bytes")
     assert mock_identify.await_args.args[0] == b"bytes"
@@ -505,6 +505,7 @@ async def test_handle_text_message_creates_session_and_sends_price_then_approval
     )
     with (
         patch("app.orchestrator.get_conn", mock_get_conn),
+        patch("app.orchestrator._ensure_user", return_value="user-uuid-1"),
         patch(
             "app.orchestrator.create_session",
             AsyncMock(return_value=session),
@@ -527,6 +528,7 @@ async def test_handle_text_message_creates_session_and_sends_price_then_approval
                 "price": 549.0,
             }
         ],
+        user_phone=settings.demo_user_phone,
     )
     assert mock_get_conn.call_count == 3
     calls = mock_cur.execute.call_args_list
@@ -571,6 +573,7 @@ async def test_handle_text_message_only_creates_one_session_when_second_yes_lose
     )
     with (
         patch("app.orchestrator.get_conn", mock_get_conn),
+        patch("app.orchestrator._ensure_user", return_value="user-uuid-1"),
         patch(
             "app.orchestrator.create_session",
             AsyncMock(return_value=session),
@@ -603,6 +606,7 @@ async def test_handle_text_message_accepts_substitute_and_quotes():
     ]
     with (
         patch("app.orchestrator.get_conn", mock_get_conn),
+        patch("app.orchestrator._ensure_user", return_value="user-uuid-1"),
         patch("app.orchestrator.send_text", AsyncMock()) as mock_send,
     ):
         await handle_text_message(settings.demo_user_phone, "chat1", "yes")
@@ -623,6 +627,7 @@ async def test_handle_text_message_declines_substitute():
     mock_cur.fetchone.side_effect = [("item-sub-1",)]
     with (
         patch("app.orchestrator.get_conn", mock_get_conn),
+        patch("app.orchestrator._ensure_user", return_value="user-uuid-1"),
         patch("app.orchestrator.send_text", AsyncMock()) as mock_send,
     ):
         await handle_text_message(settings.demo_user_phone, "chat1", "no")
@@ -651,6 +656,7 @@ async def test_handle_text_message_refill_charges_mandate_without_approval_link(
     mock_cur.fetchone.return_value = None  # no SUBSTITUTE_OFFERED
     with (
         patch("app.orchestrator.get_conn", mock_get_conn),
+        patch("app.orchestrator._ensure_user", return_value="user-uuid-1"),
         patch("app.orchestrator.find_shelf_item", return_value=shelf),
         patch(
             "app.orchestrator.charge_mandate",
@@ -696,6 +702,7 @@ async def test_handle_text_message_refill_with_quantity_charges_total():
     mock_cur.fetchone.return_value = None
     with (
         patch("app.orchestrator.get_conn", mock_get_conn),
+        patch("app.orchestrator._ensure_user", return_value="user-uuid-1"),
         patch("app.orchestrator.find_shelf_item", return_value=shelf) as mock_shelf,
         patch(
             "app.orchestrator.charge_mandate",
@@ -740,6 +747,7 @@ async def test_handle_text_message_refill_over_cap_sends_card_network_decline():
     mock_cur.fetchone.return_value = None
     with (
         patch("app.orchestrator.get_conn", mock_get_conn),
+        patch("app.orchestrator._ensure_user", return_value="user-uuid-1"),
         patch("app.orchestrator.find_shelf_item", return_value=shelf) as mock_shelf,
         patch(
             "app.orchestrator.charge_mandate",
@@ -845,6 +853,7 @@ async def test_switch_applies_cheaper_alt_then_checkouts_at_alt_price():
     )
     with (
         patch("app.orchestrator.get_conn", mock_get_conn),
+        patch("app.orchestrator._ensure_user", return_value="user-uuid-1"),
         patch(
             "app.orchestrator.create_session",
             AsyncMock(return_value=session),
@@ -855,7 +864,7 @@ async def test_switch_applies_cheaper_alt_then_checkouts_at_alt_price():
             AsyncMock(),
         ),
     ):
-        await handle_text_message(settings.demo_user_phone, "chat1", "switch")
+        await handle_text_message(settings.demo_user_phone, "chat1", "Yeah lets switch.")
 
     mock_create_session.assert_awaited_once_with(
         amount_paise=54900,
@@ -867,6 +876,7 @@ async def test_switch_applies_cheaper_alt_then_checkouts_at_alt_price():
                 "price": 549.0,
             }
         ],
+        user_phone=settings.demo_user_phone,
     )
     assert any(
         "shopify_variant_id = %s" in call[0][0]
@@ -877,6 +887,7 @@ async def test_switch_applies_cheaper_alt_then_checkouts_at_alt_price():
         "chat1",
         "cool, ₹549. approve here (one tap):",
     )
+
 
 
 async def test_yes_keeps_primary_merchant_when_cheaper_alt_exists():
@@ -900,6 +911,7 @@ async def test_yes_keeps_primary_merchant_when_cheaper_alt_exists():
     )
     with (
         patch("app.orchestrator.get_conn", mock_get_conn),
+        patch("app.orchestrator._ensure_user", return_value="user-uuid-1"),
         patch(
             "app.orchestrator.create_session",
             AsyncMock(return_value=session),
@@ -922,6 +934,7 @@ async def test_yes_keeps_primary_merchant_when_cheaper_alt_exists():
                 "price": 599.0,
             }
         ],
+        user_phone=settings.demo_user_phone,
     )
     assert not any(
         "cheaper_alt" in call[0][0] for call in mock_cur.execute.call_args_list
