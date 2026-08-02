@@ -43,6 +43,10 @@ def _merchant_url(merchant: str) -> str:
     return f"https://{slug}.example.com"
 
 
+def _customer_id() -> str:
+    return f"otto_{settings.demo_user_phone.lstrip('+')}"
+
+
 def _product_details(line_items: list[dict]) -> list[dict]:
     return [
         {
@@ -54,18 +58,24 @@ def _product_details(line_items: list[dict]) -> list[dict]:
     ]
 
 
-async def create_session(
-    amount_paise: int, merchant: str, line_items: list[dict]
-) -> Session:
-    amount = f"{Decimal(amount_paise) / Decimal(100):.2f}"
-    callback_url = f"{settings.public_base_url.rstrip('/')}/prava/callback"
-    payload = {
-        "user_id": f"otto_{settings.demo_user_phone.lstrip('+')}",
+def _session_payload(
+    amount_paise: int,
+    merchant: str,
+    line_items: list[dict],
+    *,
+    mandate_setup: dict | None = None,
+    authorized_amount_paise: int | None = None,
+) -> dict:
+    total_paise = (
+        amount_paise if authorized_amount_paise is None else authorized_amount_paise
+    )
+    payload: dict = {
+        "user_id": _customer_id(),
         "user_email": "demo@example.com",
-        "total_amount": amount,
+        "total_amount": f"{Decimal(total_paise) / Decimal(100):.2f}",
         "currency": "INR",
         "integration_type": "full_checkout",
-        "callback_url": callback_url,
+        "callback_url": f"{settings.public_base_url.rstrip('/')}/prava/callback",
         "purchase_context": [
             {
                 "merchant_details": {
@@ -77,6 +87,45 @@ async def create_session(
             }
         ],
     }
+    if mandate_setup is not None:
+        payload["mandate_setup"] = mandate_setup
+    return payload
+
+
+async def create_session(
+    amount_paise: int, merchant: str, line_items: list[dict]
+) -> Session:
+    async with httpx.AsyncClient(timeout=_TIMEOUT_SECONDS) as client:
+        response = await client.post(
+            f"{settings.prava_base_url}/v1/sessions",
+            headers=_headers(),
+            json=_session_payload(amount_paise, merchant, line_items),
+        )
+        response.raise_for_status()
+        data = response.json()
+    return Session(session_id=data["session_id"], approval_url=data["iframe_url"])
+
+
+async def create_session_with_mandate(
+    amount_paise: int, merchant: str, line_items: list[dict], cap_paise: int
+) -> Session:
+    """First purchase that also creates a standing mandate (docs: intent=checkout).
+
+    total_amount is the authorized per-charge cap (max of purchase + cap).
+    """
+    mandate_setup = {
+        "intent": "checkout",
+        "recurring_frequency": "monthly",
+        "merchant_scope": "listed",
+        "max_charges": 12,
+    }
+    payload = _session_payload(
+        amount_paise,
+        merchant,
+        line_items,
+        mandate_setup=mandate_setup,
+        authorized_amount_paise=max(amount_paise, cap_paise),
+    )
     async with httpx.AsyncClient(timeout=_TIMEOUT_SECONDS) as client:
         response = await client.post(
             f"{settings.prava_base_url}/v1/sessions",
@@ -86,6 +135,59 @@ async def create_session(
         response.raise_for_status()
         data = response.json()
     return Session(session_id=data["session_id"], approval_url=data["iframe_url"])
+
+
+async def get_mandate_id_for_session(session_id: str) -> str | None:
+    """Resolve standing mandate id after a mandate checkout session.
+
+    Docs do not put mandate_id on payment-result; list standing mandates for
+    this customer and prefer the newest active one.
+    """
+    del session_id  # kept for call-site stability; list is customer-scoped
+    async with httpx.AsyncClient(timeout=_TIMEOUT_SECONDS) as client:
+        response = await client.get(
+            f"{settings.prava_base_url}/v1/mandates",
+            headers=_headers(),
+            params={"customer_id": _customer_id(), "standing_only": "true"},
+        )
+        response.raise_for_status()
+        data = response.json()
+    mandates = data.get("mandates") or []
+    active = [m for m in mandates if m.get("status") == "active"]
+    candidates = active or mandates
+    if not candidates:
+        return None
+    candidates.sort(key=lambda m: m.get("createdAt") or m.get("updatedAt") or "", reverse=True)
+    mandate_id = candidates[0].get("id")
+    return mandate_id if isinstance(mandate_id, str) else None
+
+
+async def charge_mandate(mandate_id: str, amount_paise: int) -> PaymentResult:
+    amount = f"{Decimal(amount_paise) / Decimal(100):.2f}"
+    async with httpx.AsyncClient(timeout=_TIMEOUT_SECONDS) as client:
+        response = await client.post(
+            f"{settings.prava_base_url}/v1/mandates/{mandate_id}/charge",
+            headers=_headers(),
+            json={"amount": amount},
+        )
+        response.raise_for_status()
+        data = response.json()
+
+    credentials = data.get("credentials") or {}
+    expiry_month = credentials.get("expiryMonth")
+    expiry_year = credentials.get("expiryYear")
+    status = data.get("status") or ""
+    return PaymentResult(
+        status=status,
+        card_number=credentials.get("token"),
+        cvv=credentials.get("dynamicCvv"),
+        expiry=(
+            f"{expiry_month}/{expiry_year}"
+            if expiry_month is not None and expiry_year is not None
+            else None
+        ),
+        txn_ref_id=data.get("transactionId"),
+    )
 
 
 async def get_payment_result(session_id: str) -> PaymentResult:
