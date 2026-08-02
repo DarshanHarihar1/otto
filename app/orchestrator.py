@@ -131,10 +131,13 @@ async def handle_photo_message(
                 else:
                     with get_conn() as conn, conn.cursor() as cur:
                         cur.execute(
-                            """UPDATE items SET state = 'SUBSTITUTE_OFFERED', merchant = %s,
+                            """UPDATE items SET state = 'SUBSTITUTE_OFFERED',
+                               brand = %s, product = %s, merchant = %s,
                                shopify_variant_id = %s, last_price_paise = %s, updated_at = now()
                                WHERE id = %s""",
                             (
+                                offer.brand,
+                                offer.title,
                                 offer.merchant,
                                 offer.shopify_variant_id,
                                 offer.price_paise,
@@ -145,7 +148,7 @@ async def handle_photo_message(
                     await send_text(
                         chat_id,
                         f"Can't get {result.brand} one — none of my merchants stock it. "
-                        f"Closest is {offer.match.one_line_pitch} ₹{offer.price_paise / 100:.0f}. "
+                        f"Closest is {offer.brand} {offer.title} · ₹{offer.price_paise / 100:.0f}. "
                         f"{differences}. Want it?",
                     )
         return item_id

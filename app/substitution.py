@@ -32,6 +32,8 @@ class SubstituteOffer(BaseModel):
     handle: str
     shopify_variant_id: str
     price_paise: int
+    title: str
+    brand: str
     match: VariantMatch
 
 
@@ -158,10 +160,14 @@ async def find_substitute(
     )
     product = await get_product(domain, match.best_match_handle)
     variant = product["variants"][0]
+    title = (product.get("title") or match.best_match_handle).strip()
+    brand = (product.get("vendor") or domain).strip()
     return SubstituteOffer(
         merchant=domain,
         handle=match.best_match_handle,
         shopify_variant_id=str(variant["id"]),
         price_paise=int(float(variant["price"]) * 100),
+        title=title,
+        brand=brand,
         match=match,
     )

@@ -435,6 +435,8 @@ async def test_identified_item_without_quote_offers_substitute():
         handle="moisturizer-50ml",
         shopify_variant_id="var-1",
         price_paise=39900,
+        title="Moisturizer 50ml",
+        brand="Minimalist",
         match=VariantMatch(
             best_match_handle="moisturizer-50ml",
             similarity=0.75,
@@ -461,6 +463,8 @@ async def test_identified_item_without_quote_offers_substitute():
     sub_sql, sub_params = mock_cur.execute.call_args_list[-1][0]
     assert "state = 'SUBSTITUTE_OFFERED'" in sub_sql
     assert sub_params == (
+        "Minimalist",
+        "Moisturizer 50ml",
         "beminimalist.co",
         "var-1",
         39900,
@@ -469,6 +473,7 @@ async def test_identified_item_without_quote_offers_substitute():
     mock_send.assert_awaited_once()
     msg = mock_send.await_args.args[1]
     assert "Can't get Dove one" in msg
+    assert "Minimalist Moisturizer 50ml" in msg
     assert "different brand" in msg
     assert "Want it?" in msg
 
@@ -588,7 +593,7 @@ async def test_handle_text_message_accepts_substitute_and_quotes():
     mock_get_conn, mock_cur = _mock_db()
     mock_cur.fetchone.side_effect = [
         ("item-sub-1",),
-        ("Dove", "Moisturizer", "beminimalist.co", 39900),
+        ("Minimalist", "Moisturizer 50ml", "beminimalist.co", 39900),
     ]
     with (
         patch("app.orchestrator.get_conn", mock_get_conn),
@@ -600,7 +605,7 @@ async def test_handle_text_message_accepts_substitute_and_quotes():
     assert "IDENTIFIED" in states
     assert any("state = 'QUOTED'" in c[0][0] for c in mock_cur.execute.call_args_list)
     mock_send.assert_awaited_once_with(
-        "chat1", "Got it — Dove Moisturizer · ₹399. Reply 'yes' to buy."
+        "chat1", "Got it — Minimalist Moisturizer 50ml · ₹399. Reply 'yes' to buy."
     )
 
 

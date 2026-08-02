@@ -101,13 +101,21 @@ async def test_skincare_category_offers_labelled_substitute():
         patch("app.substitution.match_substitute", AsyncMock(return_value=fake_match)),
         patch(
             "app.substitution.get_product",
-            AsyncMock(return_value={"variants": [{"id": 1, "price": "399.00"}]}),
+            AsyncMock(
+                return_value={
+                    "title": "Moisturizer 50ml",
+                    "vendor": "Minimalist",
+                    "variants": [{"id": 1, "price": "399.00"}],
+                }
+            ),
         ),
     ):
         offer = await find_substitute(identification, SKINCARE_REGISTRY)
     assert offer is not None
     assert offer.price_paise == 39900
     assert offer.shopify_variant_id == "1"
+    assert offer.title == "Moisturizer 50ml"
+    assert offer.brand == "Minimalist"
     assert "different brand" in offer.match.differences
 
 
