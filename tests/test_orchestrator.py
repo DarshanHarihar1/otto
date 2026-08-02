@@ -399,6 +399,7 @@ async def test_identified_item_without_quote_reaches_unbuyable():
         patch("app.orchestrator.send_typing", AsyncMock()),
         patch("app.orchestrator.compose_and_send", AsyncMock()),
         patch("app.orchestrator.resolve", AsyncMock(return_value=None)),
+        patch("app.orchestrator.find_substitute", AsyncMock(return_value=None)),
         patch("app.orchestrator.send_text", AsyncMock()) as mock_send,
     ):
         await handle_photo_message(settings.demo_user_phone, "chat1", "https://x/y.jpg")
@@ -407,8 +408,69 @@ async def test_identified_item_without_quote_reaches_unbuyable():
     assert "state = 'UNBUYABLE'" in unbuyable_sql
     assert len(unbuyable_params) == 1
     mock_send.assert_awaited_once_with(
-        "chat1", "Couldn't find Minimalist Serum anywhere I can buy from."
+        "chat1",
+        "Couldn't get Minimalist Serum — none of my merchants stock it.",
     )
+
+
+async def test_identified_item_without_quote_offers_substitute():
+    from app.luna import VariantMatch
+    from app.orchestrator import handle_photo_message
+    from app.substitution import SubstituteOffer
+
+    fake_result = Identification(
+        object_type="bottle",
+        brand="Dove",
+        product="Moisturizer",
+        variant="50ml",
+        category="Beauty & Personal Care/Skin Care",
+        search_terms=["moisturizer"],
+        confidence=0.95,
+        reasoning="clear",
+        missing_info=None,
+        suggested_photo=None,
+    )
+    offer = SubstituteOffer(
+        merchant="beminimalist.co",
+        handle="moisturizer-50ml",
+        shopify_variant_id="var-1",
+        price_paise=39900,
+        match=VariantMatch(
+            best_match_handle="moisturizer-50ml",
+            similarity=0.75,
+            shared_attributes=["moisturizer"],
+            differences=["different brand"],
+            one_line_pitch="Minimalist Moisturizer 50ml",
+        ),
+    )
+    mock_get_conn, mock_cur = _mock_db()
+    mock_cur.fetchone.side_effect = [("user-uuid-1",), None]
+    with (
+        patch("app.orchestrator.get_conn", mock_get_conn),
+        patch("app.orchestrator.download_media", AsyncMock(return_value=b"bytes")),
+        patch("app.orchestrator.archive_photo", return_value="path.jpg"),
+        patch("app.orchestrator.identify", AsyncMock(return_value=fake_result)),
+        patch("app.orchestrator.send_typing", AsyncMock()),
+        patch("app.orchestrator.compose_and_send", AsyncMock()),
+        patch("app.orchestrator.resolve", AsyncMock(return_value=None)),
+        patch("app.orchestrator.find_substitute", AsyncMock(return_value=offer)),
+        patch("app.orchestrator.send_text", AsyncMock()) as mock_send,
+    ):
+        await handle_photo_message(settings.demo_user_phone, "chat1", "https://x/y.jpg")
+
+    sub_sql, sub_params = mock_cur.execute.call_args_list[-1][0]
+    assert "state = 'SUBSTITUTE_OFFERED'" in sub_sql
+    assert sub_params == (
+        "beminimalist.co",
+        "var-1",
+        39900,
+        mock_cur.execute.call_args_list[2][0][1][0],
+    )
+    mock_send.assert_awaited_once()
+    msg = mock_send.await_args.args[1]
+    assert "Can't get Dove one" in msg
+    assert "different brand" in msg
+    assert "Want it?" in msg
 
 
 async def test_handle_text_message_creates_session_and_sends_price_then_approval_link():
@@ -416,14 +478,17 @@ async def test_handle_text_message_creates_session_and_sends_price_then_approval
     from app.prava import Session
 
     mock_get_conn, mock_cur = _mock_db()
-    mock_cur.fetchone.return_value = (
-        "item-uuid-1",
-        "beminimalist.co",
-        "variant-123",
-        54900,
-        "Minimalist",
-        "Salicylic Acid Serum",
-    )
+    mock_cur.fetchone.side_effect = [
+        None,  # no SUBSTITUTE_OFFERED item
+        (
+            "item-uuid-1",
+            "beminimalist.co",
+            "variant-123",
+            54900,
+            "Minimalist",
+            "Salicylic Acid Serum",
+        ),
+    ]
     session = Session(
         session_id="prava-session-1", approval_url="https://prava.example/approve"
     )
@@ -452,15 +517,16 @@ async def test_handle_text_message_creates_session_and_sends_price_then_approval
             }
         ],
     )
-    assert mock_get_conn.call_count == 2
+    assert mock_get_conn.call_count == 3
     calls = mock_cur.execute.call_args_list
-    assert "UPDATE items" in calls[0][0][0]
-    assert "state = 'QUOTED'" in calls[0][0][0]
-    assert calls[0][0][1] == (settings.demo_user_phone,)
-    assert "INSERT INTO purchases" in calls[1][0][0]
-    assert calls[1][0][1] == ("item-uuid-1", "prava-session-1", 54900)
-    assert "INSERT INTO events" in calls[2][0][0]
-    assert json.loads(calls[2][0][1][1]) == {"chat_id": "chat1"}
+    assert "SUBSTITUTE_OFFERED" in calls[0][0][0]
+    assert "UPDATE items" in calls[1][0][0]
+    assert "state = 'QUOTED'" in calls[1][0][0]
+    assert calls[1][0][1] == (settings.demo_user_phone,)
+    assert "INSERT INTO purchases" in calls[2][0][0]
+    assert calls[2][0][1] == ("item-uuid-1", "prava-session-1", 54900)
+    assert "INSERT INTO events" in calls[3][0][0]
+    assert json.loads(calls[3][0][1][1]) == {"chat_id": "chat1"}
     assert mock_send.await_args_list[0].args == (
         "chat1",
         "₹549 for Minimalist Salicylic Acid Serum. Sending the approval link now.",
@@ -477,6 +543,7 @@ async def test_handle_text_message_only_creates_one_session_when_second_yes_lose
 
     mock_get_conn, mock_cur = _mock_db()
     mock_cur.fetchone.side_effect = [
+        None,  # first yes: no substitute
         (
             "item-uuid-1",
             "beminimalist.co",
@@ -485,7 +552,8 @@ async def test_handle_text_message_only_creates_one_session_when_second_yes_lose
             "Minimalist",
             "Salicylic Acid Serum",
         ),
-        None,
+        None,  # second yes: no substitute
+        None,  # second yes: claim lost
     ]
     session = Session(
         session_id="prava-session-1", approval_url="https://prava.example/approve"
@@ -507,10 +575,50 @@ async def test_handle_text_message_only_creates_one_session_when_second_yes_lose
 
     mock_create_session.assert_awaited_once()
     claim_calls = [
-        call for call in mock_cur.execute.call_args_list if "UPDATE items" in call[0][0]
+        call
+        for call in mock_cur.execute.call_args_list
+        if "UPDATE items" in call[0][0] and "AND i.state = 'QUOTED'" in call[0][0]
     ]
     assert len(claim_calls) == 2
-    assert all("AND i.state = 'QUOTED'" in call[0][0] for call in claim_calls)
+
+
+async def test_handle_text_message_accepts_substitute_and_quotes():
+    from app.orchestrator import handle_text_message
+
+    mock_get_conn, mock_cur = _mock_db()
+    mock_cur.fetchone.side_effect = [
+        ("item-sub-1",),
+        ("Dove", "Moisturizer", "beminimalist.co", 39900),
+    ]
+    with (
+        patch("app.orchestrator.get_conn", mock_get_conn),
+        patch("app.orchestrator.send_text", AsyncMock()) as mock_send,
+    ):
+        await handle_text_message(settings.demo_user_phone, "chat1", "yes")
+
+    states = [c[0][1][0] for c in mock_cur.execute.call_args_list if "SET state" in c[0][0]]
+    assert "IDENTIFIED" in states
+    assert any("state = 'QUOTED'" in c[0][0] for c in mock_cur.execute.call_args_list)
+    mock_send.assert_awaited_once_with(
+        "chat1", "Got it — Dove Moisturizer · ₹399. Reply 'yes' to buy."
+    )
+
+
+async def test_handle_text_message_declines_substitute():
+    from app.orchestrator import handle_text_message
+
+    mock_get_conn, mock_cur = _mock_db()
+    mock_cur.fetchone.side_effect = [("item-sub-1",)]
+    with (
+        patch("app.orchestrator.get_conn", mock_get_conn),
+        patch("app.orchestrator.send_text", AsyncMock()) as mock_send,
+    ):
+        await handle_text_message(settings.demo_user_phone, "chat1", "no")
+
+    assert any(
+        c[0][1] == ("DECLINED_SUB", "item-sub-1") for c in mock_cur.execute.call_args_list
+    )
+    mock_send.assert_awaited_once_with("chat1", "No worries — logged as a miss.")
 
 
 async def test_handle_text_message_refill_charges_mandate_without_approval_link():
@@ -528,6 +636,7 @@ async def test_handle_text_message_refill_charges_mandate_without_approval_link(
         mandate_id="mdt_123",
     )
     mock_get_conn, mock_cur = _mock_db()
+    mock_cur.fetchone.return_value = None  # no SUBSTITUTE_OFFERED
     with (
         patch("app.orchestrator.get_conn", mock_get_conn),
         patch("app.orchestrator.find_shelf_item", return_value=shelf),
@@ -548,7 +657,10 @@ async def test_handle_text_message_refill_charges_mandate_without_approval_link(
         await handle_text_message(settings.demo_user_phone, "chat1", "refill trimmer")
 
     mock_charge.assert_awaited_once_with("mdt_123", 59900)
-    assert "INSERT INTO purchases" in mock_cur.execute.call_args_list[0][0][0]
+    insert = next(
+        c for c in mock_cur.execute.call_args_list if "INSERT INTO purchases" in c[0][0]
+    )
+    assert insert[0][1] == ("item-uuid-1", 59900)
     mock_send.assert_awaited_once_with(
         "chat1", "On its way. ₹599, same as last time."
     )

@@ -13,6 +13,7 @@ from app.resolver import resolve
 from app.routes.webhook import send_text
 from app.shelf import find_shelf_item
 from app.state_machine import ItemState, gate_identification
+from app.substitution import find_substitute
 from app.vision import identify
 
 logger = logging.getLogger(__name__)
@@ -97,17 +98,7 @@ async def handle_photo_message(
         await compose_and_send(chat_id, state, result)
         if state == ItemState.IDENTIFIED:
             quote = await resolve(result, _REGISTRY)
-            if quote is None:
-                with get_conn() as conn, conn.cursor() as cur:
-                    cur.execute(
-                        "UPDATE items SET state = 'UNBUYABLE', updated_at = now() WHERE id = %s",
-                        (item_id,),
-                    )
-                await send_text(
-                    chat_id,
-                    f"Couldn't find {result.brand} {result.product} anywhere I can buy from.",
-                )
-            else:
+            if quote is not None:
                 with get_conn() as conn, conn.cursor() as cur:
                     cur.execute(
                         """UPDATE items SET state = 'QUOTED', merchant = %s,
@@ -125,6 +116,38 @@ async def handle_photo_message(
                     chat_id,
                     f"{result.brand} {result.product} · {result.variant} · ₹{price_rupees:.0f}",
                 )
+            else:
+                offer = await find_substitute(result, _REGISTRY)
+                if offer is None:
+                    with get_conn() as conn, conn.cursor() as cur:
+                        cur.execute(
+                            "UPDATE items SET state = 'UNBUYABLE', updated_at = now() WHERE id = %s",
+                            (item_id,),
+                        )
+                    await send_text(
+                        chat_id,
+                        f"Couldn't get {result.brand} {result.product} — none of my merchants stock it.",
+                    )
+                else:
+                    with get_conn() as conn, conn.cursor() as cur:
+                        cur.execute(
+                            """UPDATE items SET state = 'SUBSTITUTE_OFFERED', merchant = %s,
+                               shopify_variant_id = %s, last_price_paise = %s, updated_at = now()
+                               WHERE id = %s""",
+                            (
+                                offer.merchant,
+                                offer.shopify_variant_id,
+                                offer.price_paise,
+                                item_id,
+                            ),
+                        )
+                    differences = ", ".join(offer.match.differences)
+                    await send_text(
+                        chat_id,
+                        f"Can't get {result.brand} one — none of my merchants stock it. "
+                        f"Closest is {offer.match.one_line_pitch} ₹{offer.price_paise / 100:.0f}. "
+                        f"{differences}. Want it?",
+                    )
         return item_id
     except Exception:
         logger.exception("Photo message pipeline failed")
@@ -139,6 +162,45 @@ async def handle_photo_message(
 
 async def handle_text_message(user_phone: str, chat_id: str, text: str) -> None:
     text_lower = text.strip().lower()
+
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            """SELECT i.id FROM items i JOIN users u ON u.id = i.user_id
+               WHERE u.phone = %s AND i.state = 'SUBSTITUTE_OFFERED'
+               ORDER BY i.updated_at DESC LIMIT 1""",
+            (user_phone,),
+        )
+        sub_row = cur.fetchone()
+
+    if sub_row is not None and text_lower in ("yes", "no"):
+        item_id = sub_row[0]
+        new_state = "IDENTIFIED" if text_lower == "yes" else "DECLINED_SUB"
+        with get_conn() as conn, conn.cursor() as cur:
+            cur.execute(
+                "UPDATE items SET state = %s, updated_at = now() WHERE id = %s",
+                (new_state, item_id),
+            )
+            cur.execute(
+                "INSERT INTO events (item_id, kind, payload) VALUES (%s, 'substitute_response', %s)",
+                (item_id, json.dumps({"accepted": text_lower == "yes"})),
+            )
+        if text_lower == "no":
+            await send_text(chat_id, "No worries — logged as a miss.")
+            return
+        # "yes": merchant/variant/price already set from SUBSTITUTE_OFFERED; go to QUOTED
+        # without re-running resolve() (that could pick a different item).
+        with get_conn() as conn, conn.cursor() as cur:
+            cur.execute(
+                """UPDATE items SET state = 'QUOTED', updated_at = now()
+                   WHERE id = %s RETURNING brand, product, merchant, last_price_paise""",
+                (item_id,),
+            )
+            brand, product, _merchant, price_paise = cur.fetchone()
+        await send_text(
+            chat_id,
+            f"Got it — {brand} {product} · ₹{price_paise / 100:.0f}. Reply 'yes' to buy.",
+        )
+        return
 
     if text_lower.startswith("refill "):
         label_query = text_lower.removeprefix("refill ").strip()
