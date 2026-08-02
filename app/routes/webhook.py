@@ -168,8 +168,17 @@ async def linq_webhook(
         _seen_webhooks[webhook_id] = now
     payload = await request.json()
     event_type = payload.get("event_type")
+    logger.info(
+        "Linq webhook event_type=%r keys=%s",
+        event_type,
+        sorted((payload.get("data") or {}).keys())
+        if isinstance(payload.get("data"), dict)
+        else None,
+    )
     if event_type == "message.received":
         background_tasks.add_task(_handle_message_received, payload)
     elif event_type == "reaction.added":
         background_tasks.add_task(_handle_reaction_added, payload)
+    else:
+        logger.info("Ignoring Linq event_type=%r", event_type)
     return {"ok": True}
