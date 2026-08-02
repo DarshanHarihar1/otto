@@ -7,11 +7,17 @@ Photograph a product in iMessage. Otto identifies it, finds a live Shopify price
 1. **Photo in** — Linq webhook delivers an iMessage image
 2. **Identify** — OpenAI vision names brand, product, size, and category
 3. **Resolve** — Search Shopify merchants (brand store first, then category fan-out)
-4. **Quote** — Text back price; optionally offer a cheaper same-brand alt elsewhere
+4. **Quote** — Text back the live price
 5. **Checkout** — Tapback or “yes” opens a Prava approval link (sandbox passkey)
 6. **Shelf** — Paid items can refill later on mandate
 
-Also supports brand substitution when the exact SKU isn’t found (blocked in health categories), and mandate refills with a spend cap.
+## Features
+
+- **Shop-around** — After quoting, Otto checks 1–2 other category stores for the *same brand* SKU. If it’s ≥₹10 cheaper, it texts `same thing's ₹X cheaper at {store} — say switch?`. Reply `switch` / `cheaper` to buy the alt; `yes` / 👍 keeps the primary quote.
+- **Tapback checkout** — Like, love, or emphasize on the quote confirms like typing “yes”; dislike declines.
+- **Brand substitution** — If the exact product isn’t found, Otto can offer a labelled substitute in the same category (blocked in health categories). Consent-gated before checkout.
+- **Mandate refills** — After a first purchase, Otto can charge an approved mandate for “same again,” with a spend-cap pre-flight so over-cap attempts get a clear decline + fresh approval path.
+- **Confidence gate** — Low-confidence vision IDs ask for a clearer photo instead of guessing a wrong SKU.
 
 ## Stack
 
