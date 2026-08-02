@@ -430,9 +430,14 @@ async def test_handle_text_message_creates_session_and_sends_price_then_approval
     with (
         patch("app.orchestrator.get_conn", mock_get_conn),
         patch(
-            "app.orchestrator.create_session", AsyncMock(return_value=session)
+            "app.orchestrator.create_session_with_mandate",
+            AsyncMock(return_value=session),
         ) as mock_create_session,
         patch("app.orchestrator.send_text", AsyncMock()) as mock_send,
+        patch(
+            "app.routes.prava_callback._finalize_payment",
+            AsyncMock(),
+        ),
     ):
         await handle_text_message(settings.demo_user_phone, "chat1", "buy it")
 
@@ -446,6 +451,7 @@ async def test_handle_text_message_creates_session_and_sends_price_then_approval
                 "price": 549.0,
             }
         ],
+        cap_paise=100_000,
     )
     assert mock_get_conn.call_count == 2
     calls = mock_cur.execute.call_args_list
@@ -488,9 +494,14 @@ async def test_handle_text_message_only_creates_one_session_when_second_yes_lose
     with (
         patch("app.orchestrator.get_conn", mock_get_conn),
         patch(
-            "app.orchestrator.create_session", AsyncMock(return_value=session)
+            "app.orchestrator.create_session_with_mandate",
+            AsyncMock(return_value=session),
         ) as mock_create_session,
         patch("app.orchestrator.send_text", AsyncMock()),
+        patch(
+            "app.routes.prava_callback._finalize_payment",
+            AsyncMock(),
+        ),
     ):
         await handle_text_message(settings.demo_user_phone, "chat1", "yes")
         await handle_text_message(settings.demo_user_phone, "chat1", "yes")
@@ -501,3 +512,44 @@ async def test_handle_text_message_only_creates_one_session_when_second_yes_lose
     ]
     assert len(claim_calls) == 2
     assert all("AND i.state = 'QUOTED'" in call[0][0] for call in claim_calls)
+
+
+async def test_handle_text_message_refill_charges_mandate_without_approval_link():
+    from app.orchestrator import handle_text_message
+    from app.prava import PaymentResult
+    from app.shelf import ShelfItem
+
+    shelf = ShelfItem(
+        item_id="item-uuid-1",
+        brand="Bombay Shaving Company",
+        product="Power Play NXT Trimmer",
+        merchant="bombayshavingcompany.com",
+        shopify_variant_id="44818728616090",
+        last_price_paise=59900,
+        mandate_id="mdt_123",
+    )
+    mock_get_conn, mock_cur = _mock_db()
+    with (
+        patch("app.orchestrator.get_conn", mock_get_conn),
+        patch("app.orchestrator.find_shelf_item", return_value=shelf),
+        patch(
+            "app.orchestrator.charge_mandate",
+            AsyncMock(
+                return_value=PaymentResult(
+                    status="awaiting_result",
+                    card_number="4111",
+                    cvv="123",
+                    expiry="12/2030",
+                    txn_ref_id="txn_1",
+                )
+            ),
+        ) as mock_charge,
+        patch("app.orchestrator.send_text", AsyncMock()) as mock_send,
+    ):
+        await handle_text_message(settings.demo_user_phone, "chat1", "refill trimmer")
+
+    mock_charge.assert_awaited_once_with("mdt_123", 59900)
+    assert "INSERT INTO purchases" in mock_cur.execute.call_args_list[0][0][0]
+    mock_send.assert_awaited_once_with(
+        "chat1", "On its way. ₹599, same as last time."
+    )

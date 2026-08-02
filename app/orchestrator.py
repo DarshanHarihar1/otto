@@ -6,10 +6,12 @@ import uuid
 from app.db import get_conn
 from app.registry import load_registry
 from app.media import archive_photo, download_media
-from app.prava import create_session
+from app.mandates import DEFAULT_MANDATE_CAP_PAISE, charge_mandate
+from app.prava import create_session_with_mandate, get_mandate_id_for_session
 from app.reply_composer import compose_and_send, send_typing
 from app.resolver import resolve
 from app.routes.webhook import send_text
+from app.shelf import find_shelf_item
 from app.state_machine import ItemState, gate_identification
 from app.vision import identify
 
@@ -137,6 +139,46 @@ async def handle_photo_message(
 
 async def handle_text_message(user_phone: str, chat_id: str, text: str) -> None:
     text_lower = text.strip().lower()
+
+    if text_lower.startswith("refill "):
+        label_query = text_lower.removeprefix("refill ").strip()
+        shelf_item = find_shelf_item(user_phone, label_query)
+        if shelf_item is None:
+            await send_text(
+                chat_id, f"I don't have a saved item matching '{label_query}' yet."
+            )
+            return
+        if shelf_item.mandate_id is None:
+            await send_text(
+                chat_id,
+                "No standing approval for that item yet — I'll need you to approve it again.",
+            )
+            return
+        try:
+            result = await charge_mandate(
+                shelf_item.mandate_id, shelf_item.last_price_paise
+            )
+            if result.status == "failed" or not result.credentials_ready:
+                raise ValueError(f"Mandate charge not ready (status={result.status!r})")
+        except Exception:
+            logger.exception(
+                "Mandate charge failed for item %s mandate %s",
+                shelf_item.item_id,
+                shelf_item.mandate_id,
+            )
+            await send_text(chat_id, "Couldn't refill that one — try again in a bit?")
+            return
+        with get_conn() as conn, conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO purchases (item_id, amount_paise, status) VALUES (%s, %s, 'PAID')",
+                (shelf_item.item_id, shelf_item.last_price_paise),
+            )
+        await send_text(
+            chat_id,
+            f"On its way. ₹{shelf_item.last_price_paise / 100:.0f}, same as last time.",
+        )
+        return
+
     if text_lower not in ("yes", "buy", "buy it", "confirm"):
         return
 
@@ -163,7 +205,7 @@ async def handle_text_message(user_phone: str, chat_id: str, text: str) -> None:
 
     item_id, merchant, variant_id, price_paise, brand, product = row
     try:
-        session = await create_session(
+        session = await create_session_with_mandate(
             amount_paise=price_paise,
             merchant=merchant,
             line_items=[
@@ -173,6 +215,7 @@ async def handle_text_message(user_phone: str, chat_id: str, text: str) -> None:
                     "price": price_paise / 100,
                 }
             ],
+            cap_paise=DEFAULT_MANDATE_CAP_PAISE,
         )
     except Exception:
         logger.exception("Could not create Prava session for item %s", item_id)

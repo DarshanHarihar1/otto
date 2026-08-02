@@ -4,7 +4,12 @@ from fastapi import APIRouter, BackgroundTasks
 from fastapi.responses import HTMLResponse
 
 from app.db import get_conn
-from app.prava import PaymentResult, poll_payment_result, report_status
+from app.prava import (
+    PaymentResult,
+    get_mandate_id_for_session,
+    poll_payment_result,
+    report_status,
+)
 from app.routes.webhook import send_text
 
 router = APIRouter()
@@ -68,6 +73,20 @@ async def _finalize_payment(session_id: str) -> None:
             cur.execute(
                 "UPDATE items SET state = 'ORDERED', label = %s, updated_at = now() WHERE id = %s",
                 (f"{brand} {product}", item_id),
+            )
+        try:
+            mandate_id = await get_mandate_id_for_session(session_id)
+            if mandate_id:
+                with get_conn() as conn, conn.cursor() as cur:
+                    cur.execute(
+                        "UPDATE items SET mandate_id = %s WHERE id = %s",
+                        (mandate_id, item_id),
+                    )
+        except Exception:
+            logger.exception(
+                "Could not backfill mandate_id for session %s item %s",
+                session_id,
+                item_id,
             )
 
     with get_conn() as conn, conn.cursor() as cur:
