@@ -66,8 +66,8 @@ async def _finalize_payment(session_id: str) -> None:
     if new_state == "PAID":
         with get_conn() as conn, conn.cursor() as cur:
             cur.execute(
-                "UPDATE items SET state = 'ORDERED', updated_at = now() WHERE id = %s",
-                (item_id,),
+                "UPDATE items SET state = 'ORDERED', label = %s, updated_at = now() WHERE id = %s",
+                (f"{brand} {product}", item_id),
             )
 
     with get_conn() as conn, conn.cursor() as cur:

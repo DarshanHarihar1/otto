@@ -73,6 +73,8 @@ async def test_finalize_payment_marks_ordered_and_notifies_saved_chat():
     assert calls[1][0][1] == ("PAID", "item-uuid-1")
     assert "UPDATE purchases SET status = %s" in calls[2][0][0]
     assert "state = 'ORDERED'" in calls[3][0][0]
+    assert "label = %s" in calls[3][0][0]
+    assert calls[3][0][1] == ("Minimalist Serum", "item-uuid-1")
     assert "kind = 'chat_ref'" in calls[4][0][0]
     mock_send.assert_awaited_once_with(
         "chat-uuid-1", "Ordered ✅ · Minimalist Serum · saved to your shelf"
