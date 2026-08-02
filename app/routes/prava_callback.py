@@ -62,9 +62,10 @@ async def _attach_mandate_from_setup_session(session_id: str) -> bool:
         chat_row = cur.fetchone()
     chat_id = chat_row[0] if chat_row else None
     if chat_id:
+        short = (product or brand or "it").split()[0].lower()
         await send_text(
             chat_id,
-            f"Refills enabled for {brand} {product}. Text “refill …” anytime — no passkey.",
+            f"refills on. just text “refill {short}” next time, no passkey",
         )
     return True
 
@@ -106,7 +107,7 @@ async def _offer_mandate_setup(
             "INSERT INTO events (item_id, kind, payload) VALUES (%s, 'chat_ref', %s)",
             (item_id, json.dumps({"chat_id": chat_id})),
         )
-    await send_text(chat_id, "One more step — approve standing refills (no charge now):")
+    await send_text(chat_id, "one more thing — turn on easy refills (won't charge now):")
     await send_text(chat_id, mandate_session.approval_url)
     await _poll_mandate_setup(mandate_session.session_id)
 
@@ -197,7 +198,7 @@ async def _finalize_payment(session_id: str) -> None:
     chat_id = chat_row[0] if chat_row else None
 
     if chat_id and new_state == "PAID":
-        await send_text(chat_id, f"Ordered ✅ · {brand} {product} · saved to your shelf")
+        await send_text(chat_id, f"ordered ✅ {product}. saved on your shelf")
         if price_paise and merchant:
             try:
                 await _offer_mandate_setup(
@@ -208,7 +209,7 @@ async def _finalize_payment(session_id: str) -> None:
                     "Could not start mandate setup after order for item %s", item_id
                 )
     elif chat_id:
-        await send_text(chat_id, "Payment didn't go through — the session was declined.")
+        await send_text(chat_id, "payment bounced. try again?")
 
 
 @router.get("/prava/callback")

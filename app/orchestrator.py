@@ -113,9 +113,11 @@ async def handle_photo_message(
                         ),
                     )
                 price_rupees = quote.price_paise / 100
+                variant_bit = f", {result.variant}" if result.variant else ""
                 await send_text(
                     chat_id,
-                    f"{result.brand} {result.product} · {result.variant} · ₹{price_rupees:.0f}",
+                    f"found it — {result.brand} {result.product}{variant_bit}. "
+                    f"₹{price_rupees:.0f}. want it?",
                 )
             else:
                 offer = await find_substitute(result, _REGISTRY)
@@ -127,7 +129,7 @@ async def handle_photo_message(
                         )
                     await send_text(
                         chat_id,
-                        f"Couldn't get {result.brand} {result.product} — none of my merchants stock it.",
+                        f"none of my stores have {result.brand} {result.product} rn, sorry",
                     )
                 else:
                     with get_conn() as conn, conn.cursor() as cur:
@@ -145,20 +147,18 @@ async def handle_photo_message(
                                 item_id,
                             ),
                         )
-                    differences = ", ".join(offer.match.differences)
+                    diffs = "; ".join(offer.match.differences[:2]) or "different brand"
                     await send_text(
                         chat_id,
-                        f"Can't get {result.brand} one — none of my merchants stock it. "
-                        f"Closest is {offer.brand} {offer.title} · ₹{offer.price_paise / 100:.0f}. "
-                        f"{differences}. Want it?",
+                        f"can't get the {result.brand} one from my stores. "
+                        f"closest: {offer.brand} {offer.title} for ₹{offer.price_paise / 100:.0f}. "
+                        f"heads up — {diffs}. want that instead?",
                     )
         return item_id
     except Exception:
         logger.exception("Photo message pipeline failed")
         try:
-            await send_text(
-                chat_id, "Couldn't read that one — try a photo of the front label?"
-            )
+            await send_text(chat_id, "couldn't read that — front label photo?")
         except Exception:
             logger.error("Could not send photo-pipeline failure response")
         return None
@@ -189,7 +189,7 @@ async def handle_text_message(user_phone: str, chat_id: str, text: str) -> None:
                 (item_id, json.dumps({"accepted": text_lower == "yes"})),
             )
         if text_lower == "no":
-            await send_text(chat_id, "No worries — logged as a miss.")
+            await send_text(chat_id, "all good, skipping")
             return
         # "yes": merchant/variant/price already set from SUBSTITUTE_OFFERED; go to QUOTED
         # without re-running resolve() (that could pick a different item).
@@ -202,7 +202,7 @@ async def handle_text_message(user_phone: str, chat_id: str, text: str) -> None:
             brand, product, _merchant, price_paise = cur.fetchone()
         await send_text(
             chat_id,
-            f"Got it — {brand} {product} · ₹{price_paise / 100:.0f}. Reply 'yes' to buy.",
+            f"locked in — {brand} {product}, ₹{price_paise / 100:.0f}. say yes if you wanna buy",
         )
         return
 
@@ -215,13 +215,13 @@ async def handle_text_message(user_phone: str, chat_id: str, text: str) -> None:
         shelf_item = find_shelf_item(user_phone, label_query)
         if shelf_item is None:
             await send_text(
-                chat_id, f"I don't have a saved item matching '{label_query}' yet."
+                chat_id, f"don't have anything saved as “{label_query}” yet"
             )
             return
         if shelf_item.mandate_id is None:
             await send_text(
                 chat_id,
-                "No standing approval for that item yet — I'll need you to approve it again.",
+                "no refill approval on that one yet — need you to approve once",
             )
             return
 
@@ -234,8 +234,8 @@ async def handle_text_message(user_phone: str, chat_id: str, text: str) -> None:
         except MandateCapExceeded as e:
             await send_text(
                 chat_id,
-                f"That's ₹{e.requested_paise / 100:.0f} — over the ₹{e.cap_paise / 100:.0f} "
-                f"cap you set. The card network declined it. Want to raise the cap?",
+                f"that's ₹{e.requested_paise / 100:,.0f} — over your "
+                f"₹{e.cap_paise / 100:,.0f} cap. card network said no. wanna bump the cap?",
             )
             return
         except Exception as exc:
@@ -248,11 +248,10 @@ async def handle_text_message(user_phone: str, chat_id: str, text: str) -> None:
             if "payment cycle" in detail.lower() or "already made" in detail.lower():
                 await send_text(
                     chat_id,
-                    "Visa only allows one charge per month on this mandate — "
-                    "that slot was already used. Refill opens next cycle.",
+                    "visa only lets one charge/month on this. next refill opens next cycle",
                 )
             else:
-                await send_text(chat_id, "Couldn't refill that one — try again in a bit?")
+                await send_text(chat_id, "refill failed, try again in a bit?")
             return
         with get_conn() as conn, conn.cursor() as cur:
             cur.execute(
@@ -261,7 +260,7 @@ async def handle_text_message(user_phone: str, chat_id: str, text: str) -> None:
             )
         await send_text(
             chat_id,
-            f"On its way. ₹{total_paise / 100:.0f}, same as last time.",
+            f"on it — ₹{total_paise / 100:.0f}, same as last time",
         )
         return
 
@@ -324,7 +323,7 @@ async def handle_text_message(user_phone: str, chat_id: str, text: str) -> None:
 
     await send_text(
         chat_id,
-        f"₹{price_paise / 100:.0f} for {brand} {product}. Sending the approval link now.",
+        f"cool, ₹{price_paise / 100:.0f}. approve here (one tap):",
     )
     await send_text(chat_id, session.approval_url)
 

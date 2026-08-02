@@ -37,21 +37,22 @@ async def compose_and_send(
     chat_id: str, state: ItemState, result: Identification
 ) -> None:
     if state == ItemState.NEEDS_ANGLE:
-        angle = result.suggested_photo or "the front label, straight-on"
+        angle = result.suggested_photo or "the front label"
         text = (
-            f"Fairly sure that's {result.brand or 'this'} "
-            f"{result.product or 'product'}, but I can't read "
-            f"{result.missing_info or 'a detail'}. Photo of {angle}?"
+            f"pretty sure it's {result.brand or 'this'} "
+            f"{result.product or 'product'} but i can't read "
+            f"{result.missing_info or 'a detail'}. {angle} pic?"
         )
     elif state == ItemState.UNBUYABLE:
         text = (
-            f"That's {result.brand or ''} {result.product or 'this item'}. "
-            f"I can't buy that — it doesn't sell through the checkout I use."
+            f"yeah that's {result.brand or ''} {result.product or 'this item'}. "
+            f"i don't buy that kind of thing — only the beauty/personal care "
+            f"stores i'm hooked up to"
         )
     elif state == ItemState.IDENTIFIED:
         text = (
-            f"Got it — {result.brand or 'this'} {result.product or 'item'} "
-            f"({result.variant or 'details unavailable'}). Looking it up."
+            f"ok this looks like {result.brand or 'this'} "
+            f"{result.product or 'item'} — checking if i can get it"
         )
     else:
         text = f"({state.value})"

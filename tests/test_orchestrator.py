@@ -117,7 +117,7 @@ async def test_handle_photo_message_replies_when_user_is_unknown():
 
     assert item_id is None
     mock_send.assert_awaited_once_with(
-        "chat1", "Couldn't read that one — try a photo of the front label?"
+        "chat1", "couldn't read that — front label photo?"
     )
 
 
@@ -140,7 +140,7 @@ async def test_handle_photo_message_replies_when_identification_is_missing():
 
     assert item_id is None
     mock_send.assert_awaited_once_with(
-        "chat1", "Couldn't read that one — try a photo of the front label?"
+        "chat1", "couldn't read that — front label photo?"
     )
     assert mock_cur.execute.call_count == 2
 
@@ -371,7 +371,9 @@ async def test_identified_item_reaches_quoted_with_shopify_price():
         54900,
         mock_cur.execute.call_args_list[2][0][1][0],
     )
-    mock_send.assert_awaited_once_with("chat1", "Minimalist Serum · 30ml · ₹549")
+    mock_send.assert_awaited_once_with(
+        "chat1", "found it — Minimalist Serum, 30ml. ₹549. want it?"
+    )
 
 
 async def test_identified_item_without_quote_reaches_unbuyable():
@@ -409,7 +411,7 @@ async def test_identified_item_without_quote_reaches_unbuyable():
     assert len(unbuyable_params) == 1
     mock_send.assert_awaited_once_with(
         "chat1",
-        "Couldn't get Minimalist Serum — none of my merchants stock it.",
+        "none of my stores have Minimalist Serum rn, sorry",
     )
 
 
@@ -472,10 +474,10 @@ async def test_identified_item_without_quote_offers_substitute():
     )
     mock_send.assert_awaited_once()
     msg = mock_send.await_args.args[1]
-    assert "Can't get Dove one" in msg
+    assert "can't get the Dove one" in msg
     assert "Minimalist Moisturizer 50ml" in msg
     assert "different brand" in msg
-    assert "Want it?" in msg
+    assert "want that instead?" in msg
 
 
 async def test_handle_text_message_creates_session_and_sends_price_then_approval_link():
@@ -534,7 +536,7 @@ async def test_handle_text_message_creates_session_and_sends_price_then_approval
     assert json.loads(calls[3][0][1][1]) == {"chat_id": "chat1"}
     assert mock_send.await_args_list[0].args == (
         "chat1",
-        "₹549 for Minimalist Salicylic Acid Serum. Sending the approval link now.",
+        "cool, ₹549. approve here (one tap):",
     )
     assert mock_send.await_args_list[1].args == (
         "chat1",
@@ -605,7 +607,8 @@ async def test_handle_text_message_accepts_substitute_and_quotes():
     assert "IDENTIFIED" in states
     assert any("state = 'QUOTED'" in c[0][0] for c in mock_cur.execute.call_args_list)
     mock_send.assert_awaited_once_with(
-        "chat1", "Got it — Minimalist Moisturizer 50ml · ₹399. Reply 'yes' to buy."
+        "chat1",
+        "locked in — Minimalist Moisturizer 50ml, ₹399. say yes if you wanna buy",
     )
 
 
@@ -623,7 +626,7 @@ async def test_handle_text_message_declines_substitute():
     assert any(
         c[0][1] == ("DECLINED_SUB", "item-sub-1") for c in mock_cur.execute.call_args_list
     )
-    mock_send.assert_awaited_once_with("chat1", "No worries — logged as a miss.")
+    mock_send.assert_awaited_once_with("chat1", "all good, skipping")
 
 
 async def test_handle_text_message_refill_charges_mandate_without_approval_link():
@@ -667,7 +670,7 @@ async def test_handle_text_message_refill_charges_mandate_without_approval_link(
     )
     assert insert[0][1] == ("item-uuid-1", 59900)
     mock_send.assert_awaited_once_with(
-        "chat1", "On its way. ₹599, same as last time."
+        "chat1", "on it — ₹599, same as last time"
     )
 
 
@@ -711,7 +714,7 @@ async def test_handle_text_message_refill_with_quantity_charges_total():
     mock_shelf.assert_called_once_with(settings.demo_user_phone, "trimmer")
     mock_charge.assert_awaited_once_with("mdt_123", 59900)
     mock_send.assert_awaited_once_with(
-        "chat1", "On its way. ₹599, same as last time."
+        "chat1", "on it — ₹599, same as last time"
     )
 
 
@@ -748,8 +751,7 @@ async def test_handle_text_message_refill_over_cap_sends_card_network_decline():
     mock_charge.assert_awaited_once_with("mdt_123", 1_198_000)
     mock_send.assert_awaited_once_with(
         "chat1",
-        "That's ₹11980 — over the ₹1000 cap you set. "
-        "The card network declined it. Want to raise the cap?",
+        "that's ₹11,980 — over your ₹1,000 cap. card network said no. wanna bump the cap?",
     )
     assert not any(
         "INSERT INTO purchases" in c[0][0] for c in mock_cur.execute.call_args_list

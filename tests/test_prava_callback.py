@@ -83,7 +83,7 @@ async def test_finalize_payment_marks_ordered_and_notifies_saved_chat():
     assert calls[3][0][1] == ("Minimalist Serum", "item-uuid-1")
     assert "kind = 'chat_ref'" in calls[4][0][0]
     mock_send.assert_awaited_once_with(
-        "chat-uuid-1", "Ordered ✅ · Minimalist Serum · saved to your shelf"
+        "chat-uuid-1", "ordered ✅ Serum. saved on your shelf"
     )
     mock_offer.assert_awaited_once()
 
@@ -141,5 +141,5 @@ async def test_finalize_payment_fails_without_approving_non_ready_result():
     assert not any("state = 'ORDERED'" in call[0][0] for call in calls)
     mock_report.assert_not_awaited()
     mock_send.assert_awaited_once_with(
-        "chat-uuid-1", "Payment didn't go through — the session was declined."
+        "chat-uuid-1", "payment bounced. try again?"
     )

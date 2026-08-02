@@ -33,8 +33,8 @@ async def test_unbuyable_names_the_item():
         await compose_and_send("chat1", ItemState.UNBUYABLE, result)
     text = mock_send.call_args.args[1]
     assert "MacBook Pro" in text
-    assert "can't buy" in text
-    assert "checkout" in text
+    assert "don't buy" in text
+    assert "beauty" in text
 
 
 async def test_identified_uses_fallbacks_for_missing_product_details():
