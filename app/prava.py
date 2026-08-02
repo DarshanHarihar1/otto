@@ -255,11 +255,17 @@ async def poll_payment_result(session_id: str) -> PaymentResult:
     """Poll until credentials are ready, failed, or attempts exhausted.
 
     Per Prava SDK skill: poll ~every 3s up to ~90s. Ready when status is
-    awaiting_result/completed with token+cvv+txn_ref_id.
+    awaiting_result/completed with token+cvv+txn_ref_id. Transient HTTP
+    errors are retried — they must not abort the wait for passkey approval.
     """
     last: PaymentResult | None = None
     for attempt in range(_POLL_ATTEMPTS):
-        last = await get_payment_result(session_id)
+        try:
+            last = await get_payment_result(session_id)
+        except httpx.HTTPError:
+            if attempt + 1 < _POLL_ATTEMPTS:
+                await asyncio.sleep(_POLL_INTERVAL_SECONDS)
+            continue
         if last.status == "failed":
             return last
         if last.status in {"awaiting_result", "completed"} and last.credentials_ready:

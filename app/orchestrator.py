@@ -309,6 +309,7 @@ async def handle_text_message(user_phone: str, chat_id: str, text: str) -> None:
                    WHERE id = %s AND state = 'AWAITING_APPROVAL'""",
                 (item_id,),
             )
+        await send_text(chat_id, "checkout hiccup — say yes again?")
         return
 
     with get_conn() as conn, conn.cursor() as cur:

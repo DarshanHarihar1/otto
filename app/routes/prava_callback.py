@@ -156,16 +156,27 @@ async def _finalize_payment(session_id: str) -> None:
     try:
         # Prava skill: poll until credentials exist — callback often fires early.
         result = await poll_payment_result(session_id)
-        if result.status == "failed" or not result.credentials_ready:
-            raise ValueError(
-                f"Payment result is not ready (status={result.status!r})"
+        if result.status == "failed":
+            raise ValueError("payment result status=failed")
+        if not result.credentials_ready:
+            # Still waiting on passkey — don't mark FAILED (sandbox can also
+            # time out / 500 while the user hasn't opened the link yet).
+            logger.info(
+                "Payment still pending for session %s (status=%r)",
+                session_id,
+                result.status,
             )
+            return
         assert result.txn_ref_id is not None
         await report_status(session_id, "APPROVED", result.txn_ref_id)
         new_state = "PAID"
     except Exception:
         logger.exception("Could not finalize Prava session %s", session_id)
-        if result is not None and result.txn_ref_id:
+        # Network / timeout while waiting for approval: leave AWAITING_APPROVAL
+        # so the user can still complete the passkey (callback may finish it).
+        if result is None or result.status != "failed":
+            return
+        if result.txn_ref_id:
             try:
                 await report_status(session_id, "DECLINED", result.txn_ref_id)
             except Exception:
